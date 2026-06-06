@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+
 from bson import ObjectId
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.mongodb import get_database
@@ -28,10 +30,12 @@ async def create_income(
 
 @router.get("", response_model=list[TransactionResponse])
 async def list_income(
+    startDate: date | None = Query(default=None),
+    endDate: date | None = Query(default=None),
     db: AsyncIOMotorDatabase = Depends(get_database),
     user_id: ObjectId = Depends(get_current_user_id),
 ) -> list[TransactionResponse]:
-    return await list_transactions(db, "income", user_id)
+    return await list_transactions(db, "income", user_id, startDate, endDate)
 
 
 @router.put("/{entry_id}", response_model=TransactionResponse)

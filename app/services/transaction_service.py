@@ -145,11 +145,28 @@ async def create_transaction(
 
 
 async def list_transactions(
-    db: AsyncIOMotorDatabase, transaction_type: TransactionType, user_id: ObjectId
+    db: AsyncIOMotorDatabase,
+    transaction_type: TransactionType,
+    user_id: ObjectId,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[TransactionResponse]:
-    cursor = db.transactions.find(
-        {"createdBy": user_ownership_filter(user_id), "type": transaction_type}
-    ).sort("date", -1)
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="startDate cannot be after endDate",
+        )
+
+    match_filter = {"createdBy": user_ownership_filter(user_id), "type": transaction_type}
+    date_filter = {}
+    if start_date:
+        date_filter["$gte"] = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+    if end_date:
+        date_filter["$lte"] = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+    if date_filter:
+        match_filter["date"] = date_filter
+
+    cursor = db.transactions.find(match_filter).sort("date", -1)
     return [transaction_to_response(transaction) async for transaction in cursor]
 
 

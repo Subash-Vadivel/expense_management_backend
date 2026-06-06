@@ -22,4 +22,18 @@ class McpApiKeyModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
 
     def to_mongo(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True, exclude_none=True)
+        data = {
+            "name": self.name,
+            "keyHash": self.key_hash,
+            "keyPrefix": self.key_prefix,
+            "enabled": self.enabled,
+            "createdBy": self.created_by,
+            "createdAt": self.created_at,
+        }
+        if self.last_used_at is not None:
+            data["lastUsedAt"] = self.last_used_at
+        if self.disabled_at is not None:
+            data["disabledAt"] = self.disabled_at
+        if self.id is not None:
+            data["_id"] = self.id
+        return data

@@ -94,4 +94,9 @@ async def authenticate_api_key(db: AsyncIOMotorDatabase, raw_key: str) -> Object
     await mcp_api_key_repository.update_api_key(
         db, api_key["_id"], {"lastUsedAt": datetime.now(timezone.utc)}
     )
-    return api_key["createdBy"]
+    user_id = api_key["createdBy"]
+    if isinstance(user_id, ObjectId):
+        return user_id
+    if ObjectId.is_valid(user_id):
+        return ObjectId(user_id)
+    return None

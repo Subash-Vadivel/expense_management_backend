@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.transaction import CustomFieldValue, TransactionModel, TransactionType
+from app.repositories import transaction_repository
 from app.schemas.transaction import (
     CustomFieldValueInput,
     CustomFieldValueResponse,
@@ -14,7 +15,7 @@ from app.schemas.transaction import (
     TransactionResponse,
     TransactionUpdate,
 )
-from app.services.category_service import get_category_for_user, user_ownership_filter
+from app.services.category_service import get_category_for_user
 
 
 def custom_value_to_response(value: dict) -> CustomFieldValueResponse:
@@ -139,8 +140,8 @@ async def create_transaction(
         customFieldValues=custom_field_values,
         createdBy=user_id,
     )
-    result = await db.transactions.insert_one(transaction.to_mongo())
-    created = await db.transactions.find_one({"_id": result.inserted_id})
+    transaction_id = await transaction_repository.create_transaction(db, transaction.to_mongo())
+    created = await transaction_repository.find_transaction_by_id(db, transaction_id)
     return transaction_to_response(created)
 
 
@@ -157,17 +158,10 @@ async def list_transactions(
             detail="startDate cannot be after endDate",
         )
 
-    match_filter = {"createdBy": user_ownership_filter(user_id), "type": transaction_type}
-    date_filter = {}
-    if start_date:
-        date_filter["$gte"] = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
-    if end_date:
-        date_filter["$lte"] = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
-    if date_filter:
-        match_filter["date"] = date_filter
-
-    cursor = db.transactions.find(match_filter).sort("date", -1)
-    return [transaction_to_response(transaction) async for transaction in cursor]
+    transactions = await transaction_repository.list_transactions(
+        db, transaction_type, user_id, start_date, end_date
+    )
+    return [transaction_to_response(transaction) for transaction in transactions]
 
 
 async def update_transaction(
@@ -180,12 +174,8 @@ async def update_transaction(
     if not ObjectId.is_valid(entry_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid entry id")
 
-    existing = await db.transactions.find_one(
-        {
-            "_id": ObjectId(entry_id),
-            "createdBy": user_ownership_filter(user_id),
-            "type": transaction_type,
-        }
+    existing = await transaction_repository.find_transaction_for_user(
+        db, ObjectId(entry_id), transaction_type, user_id
     )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
@@ -207,8 +197,8 @@ async def update_transaction(
         update_data["customFieldValues"] = [value.to_mongo() for value in custom_field_values]
     update_data["updatedAt"] = datetime.now(timezone.utc)
 
-    await db.transactions.update_one({"_id": existing["_id"]}, {"$set": update_data})
-    updated = await db.transactions.find_one({"_id": existing["_id"]})
+    await transaction_repository.update_transaction(db, existing["_id"], update_data)
+    updated = await transaction_repository.find_transaction_by_id(db, existing["_id"])
     return transaction_to_response(updated)
 
 
@@ -217,12 +207,8 @@ async def delete_transaction(
 ) -> None:
     if not ObjectId.is_valid(entry_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid entry id")
-    result = await db.transactions.delete_one(
-        {
-            "_id": ObjectId(entry_id),
-            "createdBy": user_ownership_filter(user_id),
-            "type": transaction_type,
-        }
+    result = await transaction_repository.delete_transaction(
+        db, ObjectId(entry_id), transaction_type, user_id
     )
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")

@@ -8,12 +8,25 @@ FastAPI backend for the farm accounts management app.
 cd /Users/subashv/dev/Projects/farm/backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+make install
 cp .env.example .env
-uvicorn app.main:app --reload
 ```
 
 MongoDB should be running locally at `mongodb://localhost:27017`, or update `MONGODB_URI` in `.env`.
+
+## Development
+
+Start the API:
+
+```bash
+make dev
+```
+
+Run a lightweight import check:
+
+```bash
+make check
+```
 
 ## API
 

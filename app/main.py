@@ -6,7 +6,8 @@ from fastapi.responses import HTMLResponse
 
 from app.core.config import settings
 from app.database.mongodb import close_mongo_connection, connect_to_mongo
-from app.routes import auth, categories, dashboard, expenses, income
+from app.mcp.router import router as mcp_router
+from app.routes import auth, categories, dashboard, expenses, income, mcp_api_keys
 
 app = FastAPI(title=settings.app_name)
 
@@ -23,6 +24,8 @@ app.include_router(categories.router, prefix="/api/categories", tags=["Categorie
 app.include_router(income.router, prefix="/api/income", tags=["Income"])
 app.include_router(expenses.router, prefix="/api/expenses", tags=["Expenses"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(mcp_api_keys.router, prefix="/api/mcp", tags=["MCP API Keys"])
+app.include_router(mcp_router, tags=["MCP"])
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

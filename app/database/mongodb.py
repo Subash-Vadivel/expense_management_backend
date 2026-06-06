@@ -36,3 +36,5 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await db.transactions.create_index([("createdBy", 1), ("type", 1), ("date", -1)])
     await db.transactions.create_index([("createdBy", 1), ("categoryId", 1)])
+    await db.mcp_api_keys.create_index("keyHash", unique=True)
+    await db.mcp_api_keys.create_index([("createdBy", 1), ("createdAt", -1)])

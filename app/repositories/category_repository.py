@@ -1,57 +1,64 @@
 from __future__ import annotations
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from uuid import UUID
 
-from app.models.category import CategoryType
-from app.repositories.common import user_ownership_filter
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
+from app.models.category import Category, CategoryType
 
 
 async def find_category_by_normalized_name(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     category_type: CategoryType,
     normalized_name: str,
-) -> dict | None:
-    return await db.categories.find_one(
-        {
-            "createdBy": user_ownership_filter(user_id),
-            "type": category_type,
-            "normalizedName": normalized_name,
-        }
+) -> Category | None:
+    result = await db.execute(
+        select(Category).where(
+            Category.created_by == user_id,
+            Category.type == category_type,
+            Category.normalized_name == normalized_name,
+        )
     )
+    return result.scalar_one_or_none()
 
 
-async def create_category(db: AsyncIOMotorDatabase, category: dict) -> ObjectId:
-    result = await db.categories.insert_one(category)
-    return result.inserted_id
+async def create_category(db: AsyncSession, category: Category) -> UUID:
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+    return category.id
 
 
-async def find_category_by_id(db: AsyncIOMotorDatabase, category_id: ObjectId) -> dict | None:
-    return await db.categories.find_one({"_id": category_id})
+async def find_category_by_id(db: AsyncSession, category_id: UUID) -> Category | None:
+    return await db.get(Category, category_id)
 
 
 async def find_category_for_user(
-    db: AsyncIOMotorDatabase,
-    category_id: ObjectId,
+    db: AsyncSession,
+    category_id: UUID,
     category_type: CategoryType,
-    user_id: ObjectId,
-) -> dict | None:
-    return await db.categories.find_one(
-        {
-            "_id": category_id,
-            "createdBy": user_ownership_filter(user_id),
-            "type": category_type,
-        }
+    user_id: UUID,
+) -> Category | None:
+    result = await db.execute(
+        select(Category).where(
+            Category.id == category_id,
+            Category.created_by == user_id,
+            Category.type == category_type,
+        )
     )
+    return result.scalar_one_or_none()
 
 
 async def list_categories(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     category_type: CategoryType,
-    user_id: ObjectId,
-) -> list[dict]:
-    cursor = db.categories.find(
-        {"createdBy": user_ownership_filter(user_id), "type": category_type}
-    ).sort("name", 1)
-    return [category async for category in cursor]
+    user_id: UUID,
+) -> list[Category]:
+    result = await db.execute(
+        select(Category)
+        .where(Category.created_by == user_id, Category.type == category_type)
+        .order_by(Category.name.asc())
+    )
+    return list(result.scalars().all())

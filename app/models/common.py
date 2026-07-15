@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from uuid import UUID
 
-from bson import ObjectId
-from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
-
-
-def validate_object_id(value: Any) -> ObjectId:
-    if isinstance(value, ObjectId):
-        return value
-    if ObjectId.is_valid(value):
-        return ObjectId(value)
-    raise ValueError("Invalid ObjectId")
+from fastapi import HTTPException, status
 
 
-PyObjectId = Annotated[
-    ObjectId,
-    BeforeValidator(validate_object_id),
-    PlainSerializer(lambda value: str(value), return_type=str),
-    WithJsonSchema({"type": "string"}),
-]
+def parse_uuid(value: str, label: str = "id") -> UUID:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {label}",
+        ) from exc

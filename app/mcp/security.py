@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from bson import ObjectId
+from uuid import UUID
+
 from fastapi import Header, HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.mcp_api_key_service import authenticate_api_key
 
@@ -14,10 +15,10 @@ def extract_api_key(authorization: str | None, x_api_key: str | None) -> str | N
 
 
 async def authenticate_mcp_user(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> ObjectId:
+) -> UUID:
     raw_key = extract_api_key(authorization, x_api_key)
     if not raw_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MCP API key is required")

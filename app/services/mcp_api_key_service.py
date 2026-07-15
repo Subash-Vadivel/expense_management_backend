@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi import HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.mcp_api_key import McpApiKeyModel
+from app.models.common import parse_uuid
+from app.models.mcp_api_key import McpApiKey
 from app.repositories import mcp_api_key_repository
 from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse
 
@@ -23,80 +24,74 @@ def generate_api_key() -> str:
     return f"{KEY_PREFIX}{secrets.token_urlsafe(32)}"
 
 
-def api_key_to_response(api_key: dict) -> McpApiKeyResponse:
+def api_key_to_response(api_key: McpApiKey) -> McpApiKeyResponse:
     return McpApiKeyResponse(
-        id=str(api_key["_id"]),
-        name=api_key["name"],
-        keyPrefix=api_key["keyPrefix"],
-        enabled=api_key["enabled"],
-        createdAt=api_key["createdAt"],
-        lastUsedAt=api_key.get("lastUsedAt"),
-        disabledAt=api_key.get("disabledAt"),
+        id=str(api_key.id),
+        name=api_key.name,
+        keyPrefix=api_key.key_prefix,
+        enabled=api_key.enabled,
+        createdAt=api_key.created_at,
+        lastUsedAt=api_key.last_used_at,
+        disabledAt=api_key.disabled_at,
     )
 
 
 async def create_api_key(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     payload: McpApiKeyCreate,
-    user_id: ObjectId,
+    user_id: UUID,
 ) -> McpApiKeyCreateResponse:
     raw_key = generate_api_key()
     key_prefix = raw_key[:18]
-    api_key = McpApiKeyModel(
+    api_key = McpApiKey(
         name=" ".join(payload.name.strip().split()),
-        keyHash=hash_api_key(raw_key),
-        keyPrefix=key_prefix,
-        createdBy=user_id,
+        key_hash=hash_api_key(raw_key),
+        key_prefix=key_prefix,
+        created_by=user_id,
     )
-    api_key_id = await mcp_api_key_repository.create_api_key(db, api_key.to_mongo())
+    api_key_id = await mcp_api_key_repository.create_api_key(db, api_key)
     created = await mcp_api_key_repository.find_api_key_by_id(db, api_key_id)
     return McpApiKeyCreateResponse(**api_key_to_response(created).model_dump(), apiKey=raw_key)
 
 
-async def list_api_keys(db: AsyncIOMotorDatabase, user_id: ObjectId) -> list[McpApiKeyResponse]:
+async def list_api_keys(db: AsyncSession, user_id: UUID) -> list[McpApiKeyResponse]:
     api_keys = await mcp_api_key_repository.list_api_keys_for_user(db, user_id)
     return [api_key_to_response(api_key) for api_key in api_keys]
 
 
 async def set_api_key_enabled(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     api_key_id: str,
-    user_id: ObjectId,
+    user_id: UUID,
     enabled: bool,
 ) -> McpApiKeyResponse:
-    if not ObjectId.is_valid(api_key_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid API key id")
-    existing = await mcp_api_key_repository.find_api_key_for_user(db, ObjectId(api_key_id), user_id)
+    existing = await mcp_api_key_repository.find_api_key_for_user(
+        db, parse_uuid(api_key_id, "API key id"), user_id
+    )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
-    update_data = {"enabled": enabled}
-    update_data["disabledAt"] = None if enabled else datetime.now(timezone.utc)
-    await mcp_api_key_repository.update_api_key(db, existing["_id"], update_data)
-    updated = await mcp_api_key_repository.find_api_key_by_id(db, existing["_id"])
+    existing.enabled = enabled
+    existing.disabled_at = None if enabled else datetime.utcnow()
+    await mcp_api_key_repository.update_api_key(db, existing)
+    updated = await mcp_api_key_repository.find_api_key_by_id(db, existing.id)
     return api_key_to_response(updated)
 
 
-async def delete_api_key(db: AsyncIOMotorDatabase, api_key_id: str, user_id: ObjectId) -> None:
-    if not ObjectId.is_valid(api_key_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid API key id")
-    result = await mcp_api_key_repository.delete_api_key(db, ObjectId(api_key_id), user_id)
-    if result.deleted_count == 0:
+async def delete_api_key(db: AsyncSession, api_key_id: str, user_id: UUID) -> None:
+    deleted_count = await mcp_api_key_repository.delete_api_key(
+        db, parse_uuid(api_key_id, "API key id"), user_id
+    )
+    if deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
 
-async def authenticate_api_key(db: AsyncIOMotorDatabase, raw_key: str) -> ObjectId | None:
+async def authenticate_api_key(db: AsyncSession, raw_key: str) -> UUID | None:
     if not raw_key.startswith(KEY_PREFIX):
         return None
     api_key = await mcp_api_key_repository.find_api_key_by_hash(db, hash_api_key(raw_key))
-    if not api_key or not api_key.get("enabled", False):
+    if not api_key or not api_key.enabled:
         return None
-    await mcp_api_key_repository.update_api_key(
-        db, api_key["_id"], {"lastUsedAt": datetime.now(timezone.utc)}
-    )
-    user_id = api_key["createdBy"]
-    if isinstance(user_id, ObjectId):
-        return user_id
-    if ObjectId.is_valid(user_id):
-        return ObjectId(user_id)
-    return None
+    api_key.last_used_at = datetime.utcnow()
+    await mcp_api_key_repository.update_api_key(db, api_key)
+    return api_key.created_by

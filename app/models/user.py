@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import EmailStr
+from sqlmodel import Field, SQLModel
 
-from app.models.common import PyObjectId
+
+def utc_now() -> datetime:
+    return datetime.utcnow()
 
 
-class UserModel(BaseModel):
-    id: PyObjectId | None = Field(default=None, alias="_id")
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
-    email: EmailStr
+    email: EmailStr = Field(index=True, unique=True)
     hashed_password: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-
-    def to_mongo(self) -> dict[str, Any]:
-        data = self.model_dump(by_alias=True, exclude_none=True)
-        return data
+    created_at: datetime = Field(default_factory=utc_now)

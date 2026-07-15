@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi import HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.transaction import CustomFieldValue, TransactionModel, TransactionType
+from app.models.category import Category
+from app.models.common import parse_uuid
+from app.models.transaction import CustomFieldValue, Transaction, TransactionType
 from app.repositories import transaction_repository
 from app.schemas.transaction import (
     CustomFieldValueInput,
@@ -29,23 +31,21 @@ def custom_value_to_response(value: dict) -> CustomFieldValueResponse:
     )
 
 
-def transaction_to_response(transaction: dict) -> TransactionResponse:
-    stored_date = transaction["date"]
-    entry_date = stored_date.date() if isinstance(stored_date, datetime) else stored_date
+def transaction_to_response(transaction: Transaction) -> TransactionResponse:
     return TransactionResponse(
-        id=str(transaction["_id"]),
-        date=entry_date,
-        categoryId=str(transaction["categoryId"]),
-        categoryName=transaction["categoryName"],
-        description=transaction.get("description"),
-        amount=float(transaction["amount"]),
-        type=transaction["type"],
+        id=str(transaction.id),
+        date=transaction.date,
+        categoryId=str(transaction.category_id),
+        categoryName=transaction.category_name,
+        description=transaction.description,
+        amount=float(transaction.amount),
+        type=transaction.type,
         customFieldValues=[
             custom_value_to_response(value)
-            for value in transaction.get("customFieldValues", [])
+            for value in transaction.custom_field_values
         ],
-        createdAt=transaction["createdAt"],
-        updatedAt=transaction["updatedAt"],
+        createdAt=transaction.created_at,
+        updatedAt=transaction.updated_at,
     )
 
 
@@ -79,19 +79,19 @@ def coerce_custom_field_value(field: dict, raw_value) -> CustomFieldValue | None
         value_boolean = raw_value
 
     return CustomFieldValue(
-        fieldId=field["id"],
-        fieldName=field["name"],
-        fieldType=field_type,
-        valueNumber=value_number,
-        valueString=value_string,
-        valueBoolean=value_boolean,
+        field_id=field["id"],
+        field_name=field["name"],
+        field_type=field_type,
+        value_number=value_number,
+        value_string=value_string,
+        value_boolean=value_boolean,
     )
 
 
 def validate_custom_field_values(
-    category: dict, incoming_values: list[CustomFieldValueInput]
-) -> list[CustomFieldValue]:
-    definitions = category.get("customFields", [])
+    category: Category, incoming_values: list[CustomFieldValueInput]
+) -> list[dict]:
+    definitions = category.custom_fields
     definition_by_id = {field["id"]: field for field in definitions}
     incoming_by_id = {value.fieldId: value.value for value in incoming_values}
 
@@ -102,7 +102,7 @@ def validate_custom_field_values(
             detail=f"Unknown custom field id: {unknown_ids[0]}",
         )
 
-    values: list[CustomFieldValue] = []
+    values: list[dict] = []
     for field in definitions:
         raw_value = incoming_by_id.get(field["id"])
         if field.get("required", False) and is_empty_value(raw_value):
@@ -118,37 +118,37 @@ def validate_custom_field_values(
                 detail=f"{field['name']} {exc}",
             ) from exc
         if custom_value is not None:
-            values.append(custom_value)
+            values.append(custom_value.to_payload())
     return values
 
 
 async def create_transaction(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     payload: TransactionCreate,
     transaction_type: TransactionType,
-    user_id: ObjectId,
+    user_id: UUID,
 ) -> TransactionResponse:
     category = await get_category_for_user(db, payload.categoryId, transaction_type, user_id)
     custom_field_values = validate_custom_field_values(category, payload.customFieldValues)
-    transaction = TransactionModel(
+    transaction = Transaction(
         date=payload.date,
-        categoryId=category["_id"],
-        categoryName=category["name"],
+        category_id=category.id,
+        category_name=category.name,
         description=payload.description,
         amount=payload.amount,
         type=transaction_type,
-        customFieldValues=custom_field_values,
-        createdBy=user_id,
+        custom_field_values=custom_field_values,
+        created_by=user_id,
     )
-    transaction_id = await transaction_repository.create_transaction(db, transaction.to_mongo())
+    transaction_id = await transaction_repository.create_transaction(db, transaction)
     created = await transaction_repository.find_transaction_by_id(db, transaction_id)
     return transaction_to_response(created)
 
 
 async def list_transactions(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     transaction_type: TransactionType,
-    user_id: ObjectId,
+    user_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[TransactionResponse]:
@@ -165,50 +165,47 @@ async def list_transactions(
 
 
 async def update_transaction(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     entry_id: str,
     payload: TransactionUpdate,
     transaction_type: TransactionType,
-    user_id: ObjectId,
+    user_id: UUID,
 ) -> TransactionResponse:
-    if not ObjectId.is_valid(entry_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid entry id")
-
     existing = await transaction_repository.find_transaction_for_user(
-        db, ObjectId(entry_id), transaction_type, user_id
+        db, parse_uuid(entry_id, "entry id"), transaction_type, user_id
     )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
 
     update_data = payload.model_dump(exclude_unset=True, by_alias=True)
-    if "date" in update_data and isinstance(update_data["date"], date):
-        update_data["date"] = datetime.combine(update_data["date"], time.min, tzinfo=timezone.utc)
-
     category = None
     if "categoryId" in update_data and update_data["categoryId"]:
         category = await get_category_for_user(db, update_data["categoryId"], transaction_type, user_id)
-        update_data["categoryId"] = category["_id"]
-        update_data["categoryName"] = category["name"]
+        existing.category_id = category.id
+        existing.category_name = category.name
     elif "customFieldValues" in update_data:
-        category = await get_category_for_user(db, str(existing["categoryId"]), transaction_type, user_id)
+        category = await get_category_for_user(db, str(existing.category_id), transaction_type, user_id)
 
+    if "date" in update_data and update_data["date"] is not None:
+        existing.date = update_data["date"]
+    if "description" in update_data:
+        existing.description = update_data["description"]
+    if "amount" in update_data and update_data["amount"] is not None:
+        existing.amount = update_data["amount"]
     if category is not None and ("customFieldValues" in update_data or "categoryId" in update_data):
-        custom_field_values = validate_custom_field_values(category, payload.customFieldValues or [])
-        update_data["customFieldValues"] = [value.to_mongo() for value in custom_field_values]
-    update_data["updatedAt"] = datetime.now(timezone.utc)
+        existing.custom_field_values = validate_custom_field_values(category, payload.customFieldValues or [])
+    existing.updated_at = datetime.utcnow()
 
-    await transaction_repository.update_transaction(db, existing["_id"], update_data)
-    updated = await transaction_repository.find_transaction_by_id(db, existing["_id"])
+    await transaction_repository.update_transaction(db, existing)
+    updated = await transaction_repository.find_transaction_by_id(db, existing.id)
     return transaction_to_response(updated)
 
 
 async def delete_transaction(
-    db: AsyncIOMotorDatabase, entry_id: str, transaction_type: TransactionType, user_id: ObjectId
+    db: AsyncSession, entry_id: str, transaction_type: TransactionType, user_id: UUID
 ) -> None:
-    if not ObjectId.is_valid(entry_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid entry id")
-    result = await transaction_repository.delete_transaction(
-        db, ObjectId(entry_id), transaction_type, user_id
+    deleted_count = await transaction_repository.delete_transaction(
+        db, parse_uuid(entry_id, "entry id"), transaction_type, user_id
     )
-    if result.deleted_count == 0:
+    if deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")

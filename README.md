@@ -12,7 +12,30 @@ make install
 cp .env.example .env
 ```
 
-MongoDB should be running locally at `mongodb://localhost:27017`, or update `MONGODB_URI` in `.env`.
+Set the Postgres connection fields in `.env`:
+
+```env
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-password
+POSTGRES_HOST=db.ifezrdgcotfqqwdjogvy.supabase.co
+POSTGRES_PORT=5432
+POSTGRES_DBNAME=postgres
+POSTGRES_SSLMODE=require
+```
+
+## Database
+
+Apply migrations:
+
+```bash
+make db-upgrade
+```
+
+Create a new migration after model changes:
+
+```bash
+make db-revision message="describe change"
+```
 
 ## Development
 

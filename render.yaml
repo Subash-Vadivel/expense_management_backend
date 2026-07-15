@@ -3,7 +3,7 @@ services:
     name: agrikaro-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: APP_NAME
@@ -12,10 +12,18 @@ services:
         value: production
       - key: PYTHON_VERSION
         value: 3.11.11
-      - key: MONGODB_URI
+      - key: POSTGRES_USER
+        value: postgres.ifezrdgcotfqqwdjogvy
+      - key: POSTGRES_PASSWORD
         sync: false
-      - key: MONGODB_DB
-        value: farm_accounts
+      - key: POSTGRES_HOST
+        value: aws-0-ap-southeast-2.pooler.supabase.com
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DBNAME
+        value: postgres
+      - key: POSTGRES_SSLMODE
+        value: require
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: JWT_ALGORITHM

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, Query, Response, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.mongodb import get_database
+from app.database.postgres import get_session
 from app.dependencies.auth import get_current_user_id
 from app.schemas.transaction import TransactionCreate, TransactionResponse, TransactionUpdate
 from app.services.transaction_service import (
@@ -22,8 +22,8 @@ router = APIRouter()
 @router.post("", response_model=TransactionResponse, status_code=201)
 async def create_expense(
     payload: TransactionCreate,
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> TransactionResponse:
     return await create_transaction(db, payload, "expense", user_id)
 
@@ -32,8 +32,8 @@ async def create_expense(
 async def list_expenses(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[TransactionResponse]:
     return await list_transactions(db, "expense", user_id, startDate, endDate)
 
@@ -42,8 +42,8 @@ async def list_expenses(
 async def update_expense(
     entry_id: str,
     payload: TransactionUpdate,
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> TransactionResponse:
     return await update_transaction(db, entry_id, payload, "expense", user_id)
 
@@ -51,8 +51,8 @@ async def update_expense(
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_expense(
     entry_id: str,
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> Response:
     await delete_transaction(db, entry_id, "expense", user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

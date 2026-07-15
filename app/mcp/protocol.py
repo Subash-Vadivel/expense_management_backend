@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
-from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mcp.errors import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, json_rpc_error
 from app.mcp.schemas import JsonRpcRequest
@@ -19,8 +19,8 @@ def json_rpc_result(request_id, result: dict[str, Any]) -> dict:
 
 
 async def handle_json_rpc_message(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     body: dict,
 ) -> dict | None:
     try:

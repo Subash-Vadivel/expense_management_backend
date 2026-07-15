@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from bson import ObjectId
 from fastapi import HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo.errors import DuplicateKeyError
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.category import CategoryModel, CategoryType, CustomFieldDefinition
+from app.models.category import Category, CategoryType, CustomFieldDefinition
+from app.models.common import parse_uuid
 from app.repositories import category_repository
 from app.schemas.category import CategoryCreate, CategoryResponse, CustomFieldCreate, CustomFieldResponse
 
@@ -16,11 +16,11 @@ def normalize_category_name(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
-def category_to_response(category: dict) -> CategoryResponse:
+def category_to_response(category: Category) -> CategoryResponse:
     return CategoryResponse(
-        id=str(category["_id"]),
-        name=category["name"],
-        type=category["type"],
+        id=str(category.id),
+        name=category.name,
+        type=category.type,
         customFields=[
             CustomFieldResponse(
                 id=field["id"],
@@ -28,10 +28,10 @@ def category_to_response(category: dict) -> CategoryResponse:
                 type=field["type"],
                 required=field.get("required", False),
             )
-            for field in category.get("customFields", [])
+            for field in category.custom_fields
         ],
-        createdBy=str(category["createdBy"]),
-        createdAt=category["createdAt"],
+        createdBy=str(category.created_by),
+        createdAt=category.created_at,
     )
 
 
@@ -39,9 +39,9 @@ def normalize_custom_field_name(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
-def build_custom_field_definitions(fields: list[CustomFieldCreate]) -> list[CustomFieldDefinition]:
+def build_custom_field_definitions(fields: list[CustomFieldCreate]) -> list[dict]:
     seen_names: set[str] = set()
-    definitions: list[CustomFieldDefinition] = []
+    definitions: list[dict] = []
     for field in fields:
         normalized_name = normalize_custom_field_name(field.name)
         if normalized_name in seen_names:
@@ -50,19 +50,18 @@ def build_custom_field_definitions(fields: list[CustomFieldCreate]) -> list[Cust
                 detail="Custom field names must be unique within a category",
             )
         seen_names.add(normalized_name)
-        definitions.append(
-            CustomFieldDefinition(
-                id=f"cf_{uuid4().hex}",
-                name=" ".join(field.name.strip().split()),
-                type=field.type,
-                required=field.required,
-            )
+        definition = CustomFieldDefinition(
+            id=f"cf_{uuid4().hex}",
+            name=" ".join(field.name.strip().split()),
+            type=field.type,
+            required=field.required,
         )
+        definitions.append(definition.model_dump())
     return definitions
 
 
 async def create_category(
-    db: AsyncIOMotorDatabase, payload: CategoryCreate, user_id: ObjectId
+    db: AsyncSession, payload: CategoryCreate, user_id: UUID
 ) -> CategoryResponse:
     normalized_name = normalize_category_name(payload.name)
     existing = await category_repository.find_category_by_normalized_name(
@@ -74,16 +73,17 @@ async def create_category(
             detail="Category already exists for this type",
         )
 
-    category = CategoryModel(
+    category = Category(
         name=" ".join(payload.name.strip().split()),
-        normalizedName=normalized_name,
+        normalized_name=normalized_name,
         type=payload.type,
-        customFields=build_custom_field_definitions(payload.customFields),
-        createdBy=user_id,
+        custom_fields=build_custom_field_definitions(payload.customFields),
+        created_by=user_id,
     )
     try:
-        category_id = await category_repository.create_category(db, category.to_mongo())
-    except DuplicateKeyError as exc:
+        category_id = await category_repository.create_category(db, category)
+    except IntegrityError as exc:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Category already exists for this type",
@@ -93,19 +93,17 @@ async def create_category(
 
 
 async def list_categories(
-    db: AsyncIOMotorDatabase, category_type: CategoryType, user_id: ObjectId
+    db: AsyncSession, category_type: CategoryType, user_id: UUID
 ) -> list[CategoryResponse]:
     categories = await category_repository.list_categories(db, category_type, user_id)
     return [category_to_response(category) for category in categories]
 
 
 async def get_category_for_user(
-    db: AsyncIOMotorDatabase, category_id: str, category_type: CategoryType, user_id: ObjectId
-) -> dict:
-    if not ObjectId.is_valid(category_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid category id")
+    db: AsyncSession, category_id: str, category_type: CategoryType, user_id: UUID
+) -> Category:
     category = await category_repository.find_category_for_user(
-        db, ObjectId(category_id), category_type, user_id
+        db, parse_uuid(category_id, "category id"), category_type, user_id
     )
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")

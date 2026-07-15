@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi import HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import CategoryType
 from app.repositories import dashboard_repository
@@ -20,8 +20,8 @@ def validate_date_range(start_date: date | None, end_date: date | None) -> None:
 
 
 async def get_summary(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> SummaryTotals:
@@ -33,23 +33,23 @@ async def get_summary(
 
 
 async def get_monthly_totals(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[MonthlyTotals]:
     validate_date_range(start_date, end_date)
     by_month: dict[str, dict[str, float]] = {}
     for item in await dashboard_repository.aggregate_monthly_totals(db, user_id, start_date, end_date):
-        month = item["_id"]["month"]
-        tx_type = item["_id"]["type"]
+        month = item["month"]
+        tx_type = item["type"]
         by_month.setdefault(month, {"income": 0.0, "expense": 0.0})[tx_type] = float(item["total"])
     return [MonthlyTotals(month=month, **totals) for month, totals in by_month.items()]
 
 
 async def get_category_totals(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     category_type: CategoryType,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -57,8 +57,8 @@ async def get_category_totals(
     validate_date_range(start_date, end_date)
     return [
         CategoryTotals(
-            categoryId=str(item["_id"]["categoryId"]),
-            categoryName=item["_id"]["categoryName"],
+            categoryId=str(item["category_id"]),
+            categoryName=item["category_name"],
             total=float(item["total"]),
         )
         for item in await dashboard_repository.aggregate_category_totals(

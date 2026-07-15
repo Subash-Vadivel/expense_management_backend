@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from bson import ObjectId
+from uuid import UUID
 from fastapi.encoders import jsonable_encoder
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
 from app.services.transaction_service import create_transaction, delete_transaction, list_transactions, update_transaction
@@ -15,8 +15,8 @@ def parse_optional_date(value: str | None) -> date | None:
 
 
 async def handle_list_transactions(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -26,8 +26,8 @@ async def handle_list_transactions(
 
 
 async def handle_create_transaction(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -36,8 +36,8 @@ async def handle_create_transaction(
 
 
 async def handle_update_transaction(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -47,8 +47,8 @@ async def handle_update_transaction(
 
 
 async def handle_delete_transaction(
-    db: AsyncIOMotorDatabase,
-    user_id: ObjectId,
+    db: AsyncSession,
+    user_id: UUID,
     transaction_type: str,
     arguments: dict,
 ) -> object:

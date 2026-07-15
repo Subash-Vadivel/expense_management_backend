@@ -1,58 +1,58 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
-from typing import Any, Literal
+from datetime import date as Date, datetime
+from typing import Literal
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.models.common import PyObjectId
+from sqlalchemy import Column, ForeignKey, Index, JSON
+from sqlmodel import Field, SQLModel
 
 TransactionType = Literal["income", "expense"]
 CustomFieldType = Literal["NUMBER", "STRING", "BOOLEAN"]
 
 
-class CustomFieldValue(BaseModel):
-    field_id: str = Field(alias="fieldId")
-    field_name: str = Field(alias="fieldName")
-    field_type: CustomFieldType = Field(alias="fieldType")
-    value_number: float | None = Field(default=None, alias="valueNumber")
-    value_string: str | None = Field(default=None, alias="valueString")
-    value_boolean: bool | None = Field(default=None, alias="valueBoolean")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    def to_mongo(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+def utc_now() -> datetime:
+    return datetime.utcnow()
 
 
-class TransactionModel(BaseModel):
-    id: PyObjectId | None = Field(default=None, alias="_id")
-    date: date
-    category_id: PyObjectId = Field(alias="categoryId")
-    category_name: str = Field(alias="categoryName")
+class CustomFieldValue(SQLModel):
+    field_id: str
+    field_name: str
+    field_type: CustomFieldType
+    value_number: float | None = None
+    value_string: str | None = None
+    value_boolean: bool | None = None
+
+    def to_payload(self) -> dict:
+        data = {
+            "fieldId": self.field_id,
+            "fieldName": self.field_name,
+            "fieldType": self.field_type,
+        }
+        if self.value_number is not None:
+            data["valueNumber"] = self.value_number
+        if self.value_string is not None:
+            data["valueString"] = self.value_string
+        if self.value_boolean is not None:
+            data["valueBoolean"] = self.value_boolean
+        return data
+
+
+class Transaction(SQLModel, table=True):
+    __tablename__ = "transactions"
+    __table_args__ = (
+        Index("ix_transactions_owner_type_date", "created_by", "type", "date"),
+        Index("ix_transactions_owner_category", "created_by", "category_id"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    date: Date = Field(index=True)
+    category_id: UUID = Field(sa_column=Column(ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False, index=True))
+    category_name: str
     description: str | None = None
     amount: float
-    type: TransactionType
-    custom_field_values: list[CustomFieldValue] = Field(default_factory=list, alias="customFieldValues")
-    created_by: PyObjectId = Field(alias="createdBy")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), alias="createdAt")
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), alias="updatedAt")
-
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-
-    def to_mongo(self) -> dict[str, Any]:
-        data = {
-            "date": datetime.combine(self.date, time.min, tzinfo=timezone.utc),
-            "categoryId": self.category_id,
-            "categoryName": self.category_name,
-            "description": self.description,
-            "amount": self.amount,
-            "type": self.type,
-            "customFieldValues": [value.to_mongo() for value in self.custom_field_values],
-            "createdBy": self.created_by,
-            "createdAt": self.created_at,
-            "updatedAt": self.updated_at,
-        }
-        if self.id is not None:
-            data["_id"] = self.id
-        return data
+    type: str = Field(index=True)
+    custom_field_values: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    created_by: UUID = Field(sa_column=Column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

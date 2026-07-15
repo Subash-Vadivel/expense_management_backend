@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import UUID
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, Query
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.mongodb import get_database
+from app.database.postgres import get_session
 from app.dependencies.auth import get_current_user_id
 from app.models.category import CategoryType
 from app.schemas.dashboard import CategoryTotals, MonthlyTotals, SummaryTotals
@@ -19,8 +19,8 @@ router = APIRouter()
 async def summary(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> SummaryTotals:
     return await get_summary(db, user_id, startDate, endDate)
 
@@ -29,8 +29,8 @@ async def summary(
 async def monthly_totals(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[MonthlyTotals]:
     return await get_monthly_totals(db, user_id, startDate, endDate)
 
@@ -40,7 +40,7 @@ async def category_totals(
     type: CategoryType = Query(...),
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
-    db: AsyncIOMotorDatabase = Depends(get_database),
-    user_id: ObjectId = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_session),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[CategoryTotals]:
     return await get_category_totals(db, user_id, type, startDate, endDate)

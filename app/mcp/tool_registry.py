@@ -5,8 +5,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mcp.tools.categories import handle_create_category, handle_list_categories
 from app.mcp.tools.transactions import (
@@ -16,7 +16,7 @@ from app.mcp.tools.transactions import (
     handle_update_transaction,
 )
 
-ToolHandler = Callable[[AsyncIOMotorDatabase, ObjectId, dict[str, Any]], Awaitable[object]]
+ToolHandler = Callable[[AsyncSession, UUID, dict[str, Any]], Awaitable[object]]
 
 
 @dataclass(frozen=True)
@@ -76,35 +76,35 @@ def text_content(payload: object) -> list[dict[str, str]]:
     return [{"type": "text", "text": json.dumps(payload, default=str)}]
 
 
-async def _list_income(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _list_income(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_list_transactions(db, user_id, "income", arguments)
 
 
-async def _list_expenses(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _list_expenses(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_list_transactions(db, user_id, "expense", arguments)
 
 
-async def _create_income(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _create_income(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_create_transaction(db, user_id, "income", arguments)
 
 
-async def _create_expense(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _create_expense(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_create_transaction(db, user_id, "expense", arguments)
 
 
-async def _update_income(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _update_income(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_update_transaction(db, user_id, "income", arguments)
 
 
-async def _update_expense(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _update_expense(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_update_transaction(db, user_id, "expense", arguments)
 
 
-async def _delete_income(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _delete_income(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_delete_transaction(db, user_id, "income", arguments)
 
 
-async def _delete_expense(db: AsyncIOMotorDatabase, user_id: ObjectId, arguments: dict) -> object:
+async def _delete_expense(db: AsyncSession, user_id: UUID, arguments: dict) -> object:
     return await handle_delete_transaction(db, user_id, "expense", arguments)
 
 
@@ -181,7 +181,7 @@ TOOLS = [
 TOOLS_BY_NAME = {tool.name: tool for tool in TOOLS}
 
 
-async def call_tool(db: AsyncIOMotorDatabase, user_id: ObjectId, name: str, arguments: dict) -> dict:
+async def call_tool(db: AsyncSession, user_id: UUID, name: str, arguments: dict) -> dict:
     tool = TOOLS_BY_NAME.get(name)
     if not tool:
         raise ValueError(f"Unknown tool: {name}")

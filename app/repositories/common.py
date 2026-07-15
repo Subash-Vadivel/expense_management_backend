@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date
+from uuid import UUID
 
-from bson import ObjectId
+from sqlalchemy.sql.elements import ColumnElement
+
+from app.models.transaction import Transaction
 
 
-def user_ownership_filter(user_id: ObjectId) -> dict:
-    return {"$in": [user_id, str(user_id)]}
-
-
-def date_range_filter(start_date: date | None = None, end_date: date | None = None) -> dict:
-    date_filter = {}
+def transaction_date_filters(
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[ColumnElement[bool]]:
+    filters: list[ColumnElement[bool]] = []
     if start_date:
-        date_filter["$gte"] = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        filters.append(Transaction.date >= start_date)
     if end_date:
-        date_filter["$lte"] = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
-    return date_filter
+        filters.append(Transaction.date <= end_date)
+    return filters
+
+
+def owner_filter(column, user_id: UUID):
+    return column == user_id

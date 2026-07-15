@@ -1,83 +1,80 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import UUID
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo.results import DeleteResult
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
-from app.models.transaction import TransactionType
-from app.repositories.common import date_range_filter, user_ownership_filter
-
-
-def transaction_match_filter(
-    user_id: ObjectId,
-    transaction_type: TransactionType,
-    start_date: date | None = None,
-    end_date: date | None = None,
-) -> dict:
-    match_filter = {"createdBy": user_ownership_filter(user_id), "type": transaction_type}
-    date_filter = date_range_filter(start_date, end_date)
-    if date_filter:
-        match_filter["date"] = date_filter
-    return match_filter
+from app.models.transaction import Transaction, TransactionType
+from app.repositories.common import transaction_date_filters
 
 
-async def create_transaction(db: AsyncIOMotorDatabase, transaction: dict) -> ObjectId:
-    result = await db.transactions.insert_one(transaction)
-    return result.inserted_id
+async def create_transaction(db: AsyncSession, transaction: Transaction) -> UUID:
+    db.add(transaction)
+    await db.commit()
+    await db.refresh(transaction)
+    return transaction.id
 
 
-async def find_transaction_by_id(db: AsyncIOMotorDatabase, transaction_id: ObjectId) -> dict | None:
-    return await db.transactions.find_one({"_id": transaction_id})
+async def find_transaction_by_id(db: AsyncSession, transaction_id: UUID) -> Transaction | None:
+    return await db.get(Transaction, transaction_id)
 
 
 async def find_transaction_for_user(
-    db: AsyncIOMotorDatabase,
-    transaction_id: ObjectId,
+    db: AsyncSession,
+    transaction_id: UUID,
     transaction_type: TransactionType,
-    user_id: ObjectId,
-) -> dict | None:
-    return await db.transactions.find_one(
-        {
-            "_id": transaction_id,
-            "createdBy": user_ownership_filter(user_id),
-            "type": transaction_type,
-        }
+    user_id: UUID,
+) -> Transaction | None:
+    result = await db.execute(
+        select(Transaction).where(
+            Transaction.id == transaction_id,
+            Transaction.created_by == user_id,
+            Transaction.type == transaction_type,
+        )
     )
+    return result.scalar_one_or_none()
 
 
 async def list_transactions(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     transaction_type: TransactionType,
-    user_id: ObjectId,
+    user_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> list[dict]:
-    cursor = db.transactions.find(
-        transaction_match_filter(user_id, transaction_type, start_date, end_date)
-    ).sort("date", -1)
-    return [transaction async for transaction in cursor]
+) -> list[Transaction]:
+    result = await db.execute(
+        select(Transaction)
+        .where(
+            Transaction.created_by == user_id,
+            Transaction.type == transaction_type,
+            *transaction_date_filters(start_date, end_date),
+        )
+        .order_by(Transaction.date.desc(), Transaction.created_at.desc())
+    )
+    return list(result.scalars().all())
 
 
-async def update_transaction(
-    db: AsyncIOMotorDatabase,
-    transaction_id: ObjectId,
-    update_data: dict,
-) -> None:
-    await db.transactions.update_one({"_id": transaction_id}, {"$set": update_data})
+async def update_transaction(db: AsyncSession, transaction: Transaction) -> None:
+    db.add(transaction)
+    await db.commit()
+    await db.refresh(transaction)
 
 
 async def delete_transaction(
-    db: AsyncIOMotorDatabase,
-    transaction_id: ObjectId,
+    db: AsyncSession,
+    transaction_id: UUID,
     transaction_type: TransactionType,
-    user_id: ObjectId,
-) -> DeleteResult:
-    return await db.transactions.delete_one(
-        {
-            "_id": transaction_id,
-            "createdBy": user_ownership_filter(user_id),
-            "type": transaction_type,
-        }
+    user_id: UUID,
+) -> int:
+    result = await db.execute(
+        delete(Transaction).where(
+            Transaction.id == transaction_id,
+            Transaction.created_by == user_id,
+            Transaction.type == transaction_type,
+        )
     )
+    await db.commit()
+    return result.rowcount or 0

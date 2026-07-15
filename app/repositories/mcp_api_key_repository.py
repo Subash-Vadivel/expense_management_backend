@@ -1,49 +1,63 @@
 from __future__ import annotations
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from pymongo.results import DeleteResult
+from uuid import UUID
 
-from app.repositories.common import user_ownership_filter
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
-
-async def create_api_key(db: AsyncIOMotorDatabase, api_key: dict) -> ObjectId:
-    result = await db.mcp_api_keys.insert_one(api_key)
-    return result.inserted_id
+from app.models.mcp_api_key import McpApiKey
 
 
-async def find_api_key_by_id(db: AsyncIOMotorDatabase, api_key_id: ObjectId) -> dict | None:
-    return await db.mcp_api_keys.find_one({"_id": api_key_id})
+async def create_api_key(db: AsyncSession, api_key: McpApiKey) -> UUID:
+    db.add(api_key)
+    await db.commit()
+    await db.refresh(api_key)
+    return api_key.id
+
+
+async def find_api_key_by_id(db: AsyncSession, api_key_id: UUID) -> McpApiKey | None:
+    return await db.get(McpApiKey, api_key_id)
 
 
 async def find_api_key_for_user(
-    db: AsyncIOMotorDatabase,
-    api_key_id: ObjectId,
-    user_id: ObjectId,
-) -> dict | None:
-    return await db.mcp_api_keys.find_one(
-        {"_id": api_key_id, "createdBy": user_ownership_filter(user_id)}
+    db: AsyncSession,
+    api_key_id: UUID,
+    user_id: UUID,
+) -> McpApiKey | None:
+    result = await db.execute(
+        select(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
     )
+    return result.scalar_one_or_none()
 
 
-async def find_api_key_by_hash(db: AsyncIOMotorDatabase, key_hash: str) -> dict | None:
-    return await db.mcp_api_keys.find_one({"keyHash": key_hash})
+async def find_api_key_by_hash(db: AsyncSession, key_hash: str) -> McpApiKey | None:
+    result = await db.execute(select(McpApiKey).where(McpApiKey.key_hash == key_hash))
+    return result.scalar_one_or_none()
 
 
-async def list_api_keys_for_user(db: AsyncIOMotorDatabase, user_id: ObjectId) -> list[dict]:
-    cursor = db.mcp_api_keys.find({"createdBy": user_ownership_filter(user_id)}).sort("createdAt", -1)
-    return [api_key async for api_key in cursor]
+async def list_api_keys_for_user(db: AsyncSession, user_id: UUID) -> list[McpApiKey]:
+    result = await db.execute(
+        select(McpApiKey)
+        .where(McpApiKey.created_by == user_id)
+        .order_by(McpApiKey.created_at.desc())
+    )
+    return list(result.scalars().all())
 
 
-async def update_api_key(db: AsyncIOMotorDatabase, api_key_id: ObjectId, update_data: dict) -> None:
-    await db.mcp_api_keys.update_one({"_id": api_key_id}, {"$set": update_data})
+async def update_api_key(db: AsyncSession, api_key: McpApiKey) -> None:
+    db.add(api_key)
+    await db.commit()
+    await db.refresh(api_key)
 
 
 async def delete_api_key(
-    db: AsyncIOMotorDatabase,
-    api_key_id: ObjectId,
-    user_id: ObjectId,
-) -> DeleteResult:
-    return await db.mcp_api_keys.delete_one(
-        {"_id": api_key_id, "createdBy": user_ownership_filter(user_id)}
+    db: AsyncSession,
+    api_key_id: UUID,
+    user_id: UUID,
+) -> int:
+    result = await db.execute(
+        delete(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
     )
+    await db.commit()
+    return result.rowcount or 0

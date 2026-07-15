@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from app.core.config import settings
-from app.database.mongodb import close_mongo_connection, connect_to_mongo
+from app.database.postgres import close_database_connection
 from app.mcp.router import router as mcp_router
 from app.routes import auth, categories, dashboard, expenses, income, mcp_api_keys
 
@@ -86,14 +86,9 @@ async def root() -> str:
     """
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    await connect_to_mongo()
-
-
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    await close_mongo_connection()
+    await close_database_connection()
 
 
 @app.get("/health")

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
-
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.mcp.errors import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, json_rpc_error
 from app.mcp.schemas import JsonRpcRequest
 from app.mcp.tool_registry import TOOLS, call_tool
+from app.services.mcp_api_key_service import McpApiKeyAuth
 
 SERVER_INFO = {"name": "farm-accounts-mcp", "version": "0.1.0"}
 
@@ -20,7 +19,7 @@ def json_rpc_result(request_id, result: dict[str, Any]) -> dict:
 
 async def handle_json_rpc_message(
     db: AsyncSession,
-    user_id: UUID,
+    auth: McpApiKeyAuth,
     body: dict,
 ) -> dict | None:
     try:
@@ -53,7 +52,7 @@ async def handle_json_rpc_message(
         if not isinstance(name, str) or not isinstance(arguments, dict):
             return json_rpc_error(INVALID_PARAMS, "tools/call requires name and arguments", request.id)
         try:
-            result = await call_tool(db, user_id, name, arguments)
+            result = await call_tool(db, auth, name, arguments)
         except ValueError as exc:
             return json_rpc_error(INVALID_PARAMS, str(exc), request.id)
         except Exception as exc:

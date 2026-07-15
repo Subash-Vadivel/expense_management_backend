@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
-from app.dependencies.auth import get_current_user_id
+from app.dependencies.auth import BusinessAccess, get_business_access, require_business_role
 from app.schemas.transaction import TransactionCreate, TransactionResponse, TransactionUpdate
 from app.services.transaction_service import (
     create_transaction,
@@ -23,9 +22,9 @@ router = APIRouter()
 async def create_income(
     payload: TransactionCreate,
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(require_business_role("owner", "admin", "manager")),
 ) -> TransactionResponse:
-    return await create_transaction(db, payload, "income", user_id)
+    return await create_transaction(db, payload, "income", access.business.id, access.user.id)
 
 
 @router.get("", response_model=list[TransactionResponse])
@@ -33,9 +32,9 @@ async def list_income(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(get_business_access),
 ) -> list[TransactionResponse]:
-    return await list_transactions(db, "income", user_id, startDate, endDate)
+    return await list_transactions(db, "income", access.business.id, startDate, endDate)
 
 
 @router.put("/{entry_id}", response_model=TransactionResponse)
@@ -43,16 +42,16 @@ async def update_income(
     entry_id: str,
     payload: TransactionUpdate,
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(require_business_role("owner", "admin", "manager")),
 ) -> TransactionResponse:
-    return await update_transaction(db, entry_id, payload, "income", user_id)
+    return await update_transaction(db, entry_id, payload, "income", access.business.id)
 
 
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_income(
     entry_id: str,
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(require_business_role("owner", "admin", "manager")),
 ) -> Response:
-    await delete_transaction(db, entry_id, "income", user_id)
+    await delete_transaction(db, entry_id, "income", access.business.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -10,13 +10,13 @@ from app.models.category import Category, CategoryType
 
 async def find_category_by_normalized_name(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     category_type: CategoryType,
     normalized_name: str,
 ) -> Category | None:
     result = await db.execute(
         select(Category).where(
-            Category.created_by == user_id,
+            Category.business_id == business_id,
             Category.type == category_type,
             Category.normalized_name == normalized_name,
         )
@@ -35,16 +35,16 @@ async def find_category_by_id(db: AsyncSession, category_id: UUID) -> Category |
     return await db.get(Category, category_id)
 
 
-async def find_category_for_user(
+async def find_category_for_business(
     db: AsyncSession,
     category_id: UUID,
     category_type: CategoryType,
-    user_id: UUID,
+    business_id: UUID,
 ) -> Category | None:
     result = await db.execute(
         select(Category).where(
             Category.id == category_id,
-            Category.created_by == user_id,
+            Category.business_id == business_id,
             Category.type == category_type,
         )
     )
@@ -54,11 +54,11 @@ async def find_category_for_user(
 async def list_categories(
     db: AsyncSession,
     category_type: CategoryType,
-    user_id: UUID,
+    business_id: UUID,
 ) -> list[Category]:
     result = await db.execute(
         select(Category)
-        .where(Category.created_by == user_id, Category.type == category_type)
+        .where(Category.business_id == business_id, Category.type == category_type)
         .order_by(Category.name.asc())
     )
     return list(result.scalars().all())

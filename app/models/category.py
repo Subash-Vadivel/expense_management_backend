@@ -25,8 +25,8 @@ class CustomFieldDefinition(SQLModel):
 class Category(SQLModel, table=True):
     __tablename__ = "categories"
     __table_args__ = (
-        UniqueConstraint("created_by", "type", "normalized_name", name="uq_categories_owner_type_name"),
-        Index("ix_categories_owner_type_name", "created_by", "type", "name"),
+        UniqueConstraint("business_id", "type", "normalized_name", name="uq_categories_business_type_name"),
+        Index("ix_categories_business_type_name", "business_id", "type", "name"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -34,5 +34,6 @@ class Category(SQLModel, table=True):
     normalized_name: str = Field(index=True)
     type: str = Field(index=True)
     custom_fields: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    business_id: UUID = Field(sa_column=Column(ForeignKey("business_entities.id", ondelete="CASCADE"), nullable=False, index=True))
     created_by: UUID = Field(sa_column=Column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True))
     created_at: datetime = Field(default_factory=utc_now)

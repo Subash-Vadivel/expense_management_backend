@@ -20,13 +20,13 @@ async def find_api_key_by_id(db: AsyncSession, api_key_id: UUID) -> McpApiKey | 
     return await db.get(McpApiKey, api_key_id)
 
 
-async def find_api_key_for_user(
+async def find_api_key_for_business(
     db: AsyncSession,
     api_key_id: UUID,
-    user_id: UUID,
+    business_id: UUID,
 ) -> McpApiKey | None:
     result = await db.execute(
-        select(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
+        select(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.business_id == business_id)
     )
     return result.scalar_one_or_none()
 
@@ -36,10 +36,10 @@ async def find_api_key_by_hash(db: AsyncSession, key_hash: str) -> McpApiKey | N
     return result.scalar_one_or_none()
 
 
-async def list_api_keys_for_user(db: AsyncSession, user_id: UUID) -> list[McpApiKey]:
+async def list_api_keys_for_business(db: AsyncSession, business_id: UUID) -> list[McpApiKey]:
     result = await db.execute(
         select(McpApiKey)
-        .where(McpApiKey.created_by == user_id)
+        .where(McpApiKey.business_id == business_id)
         .order_by(McpApiKey.created_at.desc())
     )
     return list(result.scalars().all())
@@ -54,10 +54,10 @@ async def update_api_key(db: AsyncSession, api_key: McpApiKey) -> None:
 async def delete_api_key(
     db: AsyncSession,
     api_key_id: UUID,
-    user_id: UUID,
+    business_id: UUID,
 ) -> int:
     result = await db.execute(
-        delete(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
+        delete(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.business_id == business_id)
     )
     await db.commit()
     return result.rowcount or 0

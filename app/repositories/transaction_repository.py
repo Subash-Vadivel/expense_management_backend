@@ -22,16 +22,16 @@ async def find_transaction_by_id(db: AsyncSession, transaction_id: UUID) -> Tran
     return await db.get(Transaction, transaction_id)
 
 
-async def find_transaction_for_user(
+async def find_transaction_for_business(
     db: AsyncSession,
     transaction_id: UUID,
     transaction_type: TransactionType,
-    user_id: UUID,
+    business_id: UUID,
 ) -> Transaction | None:
     result = await db.execute(
         select(Transaction).where(
             Transaction.id == transaction_id,
-            Transaction.created_by == user_id,
+            Transaction.business_id == business_id,
             Transaction.type == transaction_type,
         )
     )
@@ -41,14 +41,14 @@ async def find_transaction_for_user(
 async def list_transactions(
     db: AsyncSession,
     transaction_type: TransactionType,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[Transaction]:
     result = await db.execute(
         select(Transaction)
         .where(
-            Transaction.created_by == user_id,
+            Transaction.business_id == business_id,
             Transaction.type == transaction_type,
             *transaction_date_filters(start_date, end_date),
         )
@@ -67,12 +67,12 @@ async def delete_transaction(
     db: AsyncSession,
     transaction_id: UUID,
     transaction_type: TransactionType,
-    user_id: UUID,
+    business_id: UUID,
 ) -> int:
     result = await db.execute(
         delete(Transaction).where(
             Transaction.id == transaction_id,
-            Transaction.created_by == user_id,
+            Transaction.business_id == business_id,
             Transaction.type == transaction_type,
         )
     )

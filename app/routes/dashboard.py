@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
-from app.dependencies.auth import get_current_user_id
+from app.dependencies.auth import BusinessAccess, get_business_access
 from app.models.category import CategoryType
 from app.schemas.dashboard import CategoryTotals, MonthlyTotals, SummaryTotals
 from app.services.dashboard_service import get_category_totals, get_monthly_totals, get_summary
@@ -20,9 +19,9 @@ async def summary(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(get_business_access),
 ) -> SummaryTotals:
-    return await get_summary(db, user_id, startDate, endDate)
+    return await get_summary(db, access.business.id, startDate, endDate)
 
 
 @router.get("/monthly-totals", response_model=list[MonthlyTotals])
@@ -30,9 +29,9 @@ async def monthly_totals(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(get_business_access),
 ) -> list[MonthlyTotals]:
-    return await get_monthly_totals(db, user_id, startDate, endDate)
+    return await get_monthly_totals(db, access.business.id, startDate, endDate)
 
 
 @router.get("/category-totals", response_model=list[CategoryTotals])
@@ -41,6 +40,6 @@ async def category_totals(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
     db: AsyncSession = Depends(get_session),
-    user_id: UUID = Depends(get_current_user_id),
+    access: BusinessAccess = Depends(get_business_access),
 ) -> list[CategoryTotals]:
-    return await get_category_totals(db, user_id, type, startDate, endDate)
+    return await get_category_totals(db, access.business.id, type, startDate, endDate)

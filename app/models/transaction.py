@@ -41,8 +41,8 @@ class CustomFieldValue(SQLModel):
 class Transaction(SQLModel, table=True):
     __tablename__ = "transactions"
     __table_args__ = (
-        Index("ix_transactions_owner_type_date", "created_by", "type", "date"),
-        Index("ix_transactions_owner_category", "created_by", "category_id"),
+        Index("ix_transactions_business_type_date", "business_id", "type", "date"),
+        Index("ix_transactions_business_category", "business_id", "category_id"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -53,6 +53,7 @@ class Transaction(SQLModel, table=True):
     amount: float
     type: str = Field(index=True)
     custom_field_values: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    business_id: UUID = Field(sa_column=Column(ForeignKey("business_entities.id", ondelete="CASCADE"), nullable=False, index=True))
     created_by: UUID = Field(sa_column=Column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True))
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

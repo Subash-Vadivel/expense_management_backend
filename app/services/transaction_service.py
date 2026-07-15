@@ -17,7 +17,7 @@ from app.schemas.transaction import (
     TransactionResponse,
     TransactionUpdate,
 )
-from app.services.category_service import get_category_for_user
+from app.services.category_service import get_category_for_business
 
 
 def custom_value_to_response(value: dict) -> CustomFieldValueResponse:
@@ -126,9 +126,10 @@ async def create_transaction(
     db: AsyncSession,
     payload: TransactionCreate,
     transaction_type: TransactionType,
+    business_id: UUID,
     user_id: UUID,
 ) -> TransactionResponse:
-    category = await get_category_for_user(db, payload.categoryId, transaction_type, user_id)
+    category = await get_category_for_business(db, payload.categoryId, transaction_type, business_id)
     custom_field_values = validate_custom_field_values(category, payload.customFieldValues)
     transaction = Transaction(
         date=payload.date,
@@ -138,6 +139,7 @@ async def create_transaction(
         amount=payload.amount,
         type=transaction_type,
         custom_field_values=custom_field_values,
+        business_id=business_id,
         created_by=user_id,
     )
     transaction_id = await transaction_repository.create_transaction(db, transaction)
@@ -148,7 +150,7 @@ async def create_transaction(
 async def list_transactions(
     db: AsyncSession,
     transaction_type: TransactionType,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[TransactionResponse]:
@@ -159,7 +161,7 @@ async def list_transactions(
         )
 
     transactions = await transaction_repository.list_transactions(
-        db, transaction_type, user_id, start_date, end_date
+        db, transaction_type, business_id, start_date, end_date
     )
     return [transaction_to_response(transaction) for transaction in transactions]
 
@@ -169,10 +171,10 @@ async def update_transaction(
     entry_id: str,
     payload: TransactionUpdate,
     transaction_type: TransactionType,
-    user_id: UUID,
+    business_id: UUID,
 ) -> TransactionResponse:
-    existing = await transaction_repository.find_transaction_for_user(
-        db, parse_uuid(entry_id, "entry id"), transaction_type, user_id
+    existing = await transaction_repository.find_transaction_for_business(
+        db, parse_uuid(entry_id, "entry id"), transaction_type, business_id
     )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
@@ -180,11 +182,11 @@ async def update_transaction(
     update_data = payload.model_dump(exclude_unset=True, by_alias=True)
     category = None
     if "categoryId" in update_data and update_data["categoryId"]:
-        category = await get_category_for_user(db, update_data["categoryId"], transaction_type, user_id)
+        category = await get_category_for_business(db, update_data["categoryId"], transaction_type, business_id)
         existing.category_id = category.id
         existing.category_name = category.name
     elif "customFieldValues" in update_data:
-        category = await get_category_for_user(db, str(existing.category_id), transaction_type, user_id)
+        category = await get_category_for_business(db, str(existing.category_id), transaction_type, business_id)
 
     if "date" in update_data and update_data["date"] is not None:
         existing.date = update_data["date"]
@@ -202,10 +204,10 @@ async def update_transaction(
 
 
 async def delete_transaction(
-    db: AsyncSession, entry_id: str, transaction_type: TransactionType, user_id: UUID
+    db: AsyncSession, entry_id: str, transaction_type: TransactionType, business_id: UUID
 ) -> None:
     deleted_count = await transaction_repository.delete_transaction(
-        db, parse_uuid(entry_id, "entry id"), transaction_type, user_id
+        db, parse_uuid(entry_id, "entry id"), transaction_type, business_id
     )
     if deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")

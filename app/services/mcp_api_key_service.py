@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -14,6 +15,12 @@ from app.repositories import mcp_api_key_repository
 from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse
 
 KEY_PREFIX = "farm_mcp_"
+
+
+@dataclass(frozen=True)
+class McpApiKeyAuth:
+    user_id: UUID
+    business_id: UUID
 
 
 def hash_api_key(api_key: str) -> str:
@@ -39,6 +46,7 @@ def api_key_to_response(api_key: McpApiKey) -> McpApiKeyResponse:
 async def create_api_key(
     db: AsyncSession,
     payload: McpApiKeyCreate,
+    business_id: UUID,
     user_id: UUID,
 ) -> McpApiKeyCreateResponse:
     raw_key = generate_api_key()
@@ -47,6 +55,7 @@ async def create_api_key(
         name=" ".join(payload.name.strip().split()),
         key_hash=hash_api_key(raw_key),
         key_prefix=key_prefix,
+        business_id=business_id,
         created_by=user_id,
     )
     api_key_id = await mcp_api_key_repository.create_api_key(db, api_key)
@@ -54,19 +63,19 @@ async def create_api_key(
     return McpApiKeyCreateResponse(**api_key_to_response(created).model_dump(), apiKey=raw_key)
 
 
-async def list_api_keys(db: AsyncSession, user_id: UUID) -> list[McpApiKeyResponse]:
-    api_keys = await mcp_api_key_repository.list_api_keys_for_user(db, user_id)
+async def list_api_keys(db: AsyncSession, business_id: UUID) -> list[McpApiKeyResponse]:
+    api_keys = await mcp_api_key_repository.list_api_keys_for_business(db, business_id)
     return [api_key_to_response(api_key) for api_key in api_keys]
 
 
 async def set_api_key_enabled(
     db: AsyncSession,
     api_key_id: str,
-    user_id: UUID,
+    business_id: UUID,
     enabled: bool,
 ) -> McpApiKeyResponse:
-    existing = await mcp_api_key_repository.find_api_key_for_user(
-        db, parse_uuid(api_key_id, "API key id"), user_id
+    existing = await mcp_api_key_repository.find_api_key_for_business(
+        db, parse_uuid(api_key_id, "API key id"), business_id
     )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
@@ -78,15 +87,15 @@ async def set_api_key_enabled(
     return api_key_to_response(updated)
 
 
-async def delete_api_key(db: AsyncSession, api_key_id: str, user_id: UUID) -> None:
+async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -> None:
     deleted_count = await mcp_api_key_repository.delete_api_key(
-        db, parse_uuid(api_key_id, "API key id"), user_id
+        db, parse_uuid(api_key_id, "API key id"), business_id
     )
     if deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
 
-async def authenticate_api_key(db: AsyncSession, raw_key: str) -> UUID | None:
+async def authenticate_api_key(db: AsyncSession, raw_key: str) -> McpApiKeyAuth | None:
     if not raw_key.startswith(KEY_PREFIX):
         return None
     api_key = await mcp_api_key_repository.find_api_key_by_hash(db, hash_api_key(raw_key))
@@ -94,4 +103,4 @@ async def authenticate_api_key(db: AsyncSession, raw_key: str) -> UUID | None:
         return None
     api_key.last_used_at = datetime.utcnow()
     await mcp_api_key_repository.update_api_key(db, api_key)
-    return api_key.created_by
+    return McpApiKeyAuth(user_id=api_key.created_by, business_id=api_key.business_id)

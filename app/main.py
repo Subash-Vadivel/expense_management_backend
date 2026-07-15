@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from app.core.config import settings
 from app.database.postgres import close_database_connection
 from app.mcp.router import router as mcp_router
-from app.routes import auth, categories, dashboard, expenses, income, mcp_api_keys
+from app.routes import auth, businesses, categories, dashboard, expenses, income, invitations, mcp_api_keys
 
 app = FastAPI(title=settings.app_name)
 
@@ -20,6 +20,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(businesses.router, prefix="/api/businesses", tags=["Businesses"])
+app.include_router(invitations.router, prefix="/api/invitations", tags=["Invitations"])
 app.include_router(categories.router, prefix="/api/categories", tags=["Categories"])
 app.include_router(income.router, prefix="/api/income", tags=["Income"])
 app.include_router(expenses.router, prefix="/api/expenses", tags=["Expenses"])

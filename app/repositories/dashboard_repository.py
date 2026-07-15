@@ -14,13 +14,13 @@ from app.repositories.common import transaction_date_filters
 
 async def aggregate_summary_totals(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> dict[str, float]:
     result = await db.execute(
         select(Transaction.type, func.coalesce(func.sum(Transaction.amount), 0.0))
-        .where(Transaction.created_by == user_id, *transaction_date_filters(start_date, end_date))
+        .where(Transaction.business_id == business_id, *transaction_date_filters(start_date, end_date))
         .group_by(Transaction.type)
     )
     return {row[0]: float(row[1] or 0.0) for row in result.all()}
@@ -28,14 +28,14 @@ async def aggregate_summary_totals(
 
 async def aggregate_monthly_totals(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[dict]:
     month_expr = func.to_char(Transaction.date, "YYYY-MM")
     result = await db.execute(
         select(month_expr.label("month"), Transaction.type, func.coalesce(func.sum(Transaction.amount), 0.0))
-        .where(Transaction.created_by == user_id, *transaction_date_filters(start_date, end_date))
+        .where(Transaction.business_id == business_id, *transaction_date_filters(start_date, end_date))
         .group_by(month_expr, Transaction.type)
         .order_by(month_expr.asc())
     )
@@ -44,7 +44,7 @@ async def aggregate_monthly_totals(
 
 async def aggregate_category_totals(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     category_type: CategoryType,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -56,7 +56,7 @@ async def aggregate_category_totals(
             func.coalesce(func.sum(Transaction.amount), 0.0).label("total"),
         )
         .where(
-            Transaction.created_by == user_id,
+            Transaction.business_id == business_id,
             Transaction.type == category_type,
             *transaction_date_filters(start_date, end_date),
         )

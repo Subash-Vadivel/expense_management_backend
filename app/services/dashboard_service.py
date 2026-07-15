@@ -21,12 +21,12 @@ def validate_date_range(start_date: date | None, end_date: date | None) -> None:
 
 async def get_summary(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> SummaryTotals:
     validate_date_range(start_date, end_date)
-    totals = await dashboard_repository.aggregate_summary_totals(db, user_id, start_date, end_date)
+    totals = await dashboard_repository.aggregate_summary_totals(db, business_id, start_date, end_date)
     income = totals.get("income", 0.0)
     expense = totals.get("expense", 0.0)
     return SummaryTotals(totalIncome=income, totalExpense=expense, netBalance=income - expense)
@@ -34,13 +34,13 @@ async def get_summary(
 
 async def get_monthly_totals(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[MonthlyTotals]:
     validate_date_range(start_date, end_date)
     by_month: dict[str, dict[str, float]] = {}
-    for item in await dashboard_repository.aggregate_monthly_totals(db, user_id, start_date, end_date):
+    for item in await dashboard_repository.aggregate_monthly_totals(db, business_id, start_date, end_date):
         month = item["month"]
         tx_type = item["type"]
         by_month.setdefault(month, {"income": 0.0, "expense": 0.0})[tx_type] = float(item["total"])
@@ -49,7 +49,7 @@ async def get_monthly_totals(
 
 async def get_category_totals(
     db: AsyncSession,
-    user_id: UUID,
+    business_id: UUID,
     category_type: CategoryType,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -62,6 +62,6 @@ async def get_category_totals(
             total=float(item["total"]),
         )
         for item in await dashboard_repository.aggregate_category_totals(
-            db, user_id, category_type, start_date, end_date
+            db, business_id, category_type, start_date, end_date
         )
     ]

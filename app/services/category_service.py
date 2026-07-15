@@ -61,11 +61,14 @@ def build_custom_field_definitions(fields: list[CustomFieldCreate]) -> list[dict
 
 
 async def create_category(
-    db: AsyncSession, payload: CategoryCreate, user_id: UUID
+    db: AsyncSession,
+    payload: CategoryCreate,
+    business_id: UUID,
+    user_id: UUID,
 ) -> CategoryResponse:
     normalized_name = normalize_category_name(payload.name)
     existing = await category_repository.find_category_by_normalized_name(
-        db, user_id, payload.type, normalized_name
+        db, business_id, payload.type, normalized_name
     )
     if existing:
         raise HTTPException(
@@ -78,6 +81,7 @@ async def create_category(
         normalized_name=normalized_name,
         type=payload.type,
         custom_fields=build_custom_field_definitions(payload.customFields),
+        business_id=business_id,
         created_by=user_id,
     )
     try:
@@ -93,17 +97,17 @@ async def create_category(
 
 
 async def list_categories(
-    db: AsyncSession, category_type: CategoryType, user_id: UUID
+    db: AsyncSession, category_type: CategoryType, business_id: UUID
 ) -> list[CategoryResponse]:
-    categories = await category_repository.list_categories(db, category_type, user_id)
+    categories = await category_repository.list_categories(db, category_type, business_id)
     return [category_to_response(category) for category in categories]
 
 
-async def get_category_for_user(
-    db: AsyncSession, category_id: str, category_type: CategoryType, user_id: UUID
+async def get_category_for_business(
+    db: AsyncSession, category_id: str, category_type: CategoryType, business_id: UUID
 ) -> Category:
-    category = await category_repository.find_category_for_user(
-        db, parse_uuid(category_id, "category id"), category_type, user_id
+    category = await category_repository.find_category_for_business(
+        db, parse_uuid(category_id, "category id"), category_type, business_id
     )
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")

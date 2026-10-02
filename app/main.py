@@ -77,7 +77,7 @@ async def root() -> str:
       <body>
         <main>
           <h1>{settings.app_name}</h1>
-          <p>Farm Accounts backend is running. Use the API routes from the web app, or inspect the interactive API documentation.</p>
+          <p>The backend is running. Use the API routes from the web app, or inspect the interactive API documentation.</p>
           <div class="links">
             <a href="/docs">Open API Docs</a>
             <a class="secondary" href="/health">Health Check</a>

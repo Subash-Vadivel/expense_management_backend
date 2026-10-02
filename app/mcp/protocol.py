@@ -10,7 +10,7 @@ from app.mcp.schemas import JsonRpcRequest
 from app.mcp.tool_registry import TOOLS, call_tool
 from app.services.mcp_api_key_service import McpApiKeyAuth
 
-SERVER_INFO = {"name": "farm-accounts-mcp", "version": "0.1.0"}
+SERVER_INFO = {"name": "ledgerline-mcp", "version": "0.1.0"}
 
 
 def json_rpc_result(request_id, result: dict[str, Any]) -> dict:

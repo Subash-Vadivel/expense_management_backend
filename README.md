@@ -1,6 +1,6 @@
-# Farm Accounts API
+# Ledgerline API
 
-FastAPI backend for the farm accounts management app.
+FastAPI backend for Ledgerline, an income and expense management app.
 
 ## Setup
 

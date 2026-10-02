@@ -1,1 +1,1 @@
-"""MCP protocol adapter for Farm Accounts."""
+"""MCP protocol adapter for Ledgerline."""

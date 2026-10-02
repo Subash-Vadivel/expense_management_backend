@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Farm Accounts API"
+    app_name: str = "Ledgerline API"
     environment: str = "development"
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"

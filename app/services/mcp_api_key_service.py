@@ -14,7 +14,9 @@ from app.models.mcp_api_key import McpApiKey
 from app.repositories import mcp_api_key_repository
 from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse
 
-KEY_PREFIX = "farm_mcp_"
+KEY_PREFIX = "lgl_mcp_"
+# Keys issued before the rename still authenticate.
+LEGACY_KEY_PREFIXES = ("farm_mcp_",)
 
 
 @dataclass(frozen=True)
@@ -96,7 +98,7 @@ async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -
 
 
 async def authenticate_api_key(db: AsyncSession, raw_key: str) -> McpApiKeyAuth | None:
-    if not raw_key.startswith(KEY_PREFIX):
+    if not raw_key.startswith((KEY_PREFIX, *LEGACY_KEY_PREFIXES)):
         return None
     api_key = await mcp_api_key_repository.find_api_key_by_hash(db, hash_api_key(raw_key))
     if not api_key or not api_key.enabled:

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.mcp.tools.bulk import handle_create_categories_bulk, handle_create_transactions_bulk
 from app.mcp.tools.categories import handle_create_category, handle_delete_category, handle_list_categories
 from app.mcp.tools.summary import handle_get_summary
 from app.mcp.tools.reports import (
@@ -32,6 +33,7 @@ from app.mcp.tools.workspaces import handle_create_workspace, handle_list_worksp
 from app.mcp.workspace import ToolAccessError, WorkspaceContext, resolve_workspace
 from app.schemas.pagination import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, MAX_SEARCH_LENGTH
 from app.schemas.report import MAX_SERIES
+from app.services.bulk import MAX_BULK_ITEMS
 from app.services.mcp_api_key_service import McpApiKeyAuth
 
 # Workspace tools get a WorkspaceContext; account tools get the key's McpApiKeyAuth.
@@ -122,6 +124,11 @@ transaction_list_properties = {
     "order": {"type": "string", "enum": ["asc", "desc"], "default": "desc"},
     **pagination_properties,
 }
+BULK_NOTE = (
+    f" Up to {MAX_BULK_ITEMS} items per call, saved all-or-nothing: if any item is invalid, nothing is saved"
+    " and the error lists each problem by index (fix those and resend the whole batch). Prefer this over"
+    " repeated single calls when adding several items."
+)
 PAGED_RESULT_NOTE = (
     " Results are paginated: the response has items, total, limit, offset, hasMore and nextOffset."
     " If hasMore is true, call again with offset=nextOffset to fetch more."
@@ -280,6 +287,14 @@ async def _update_expense(db: AsyncSession, ctx: WorkspaceContext, arguments: di
     return await handle_update_transaction(db, ctx, "expense", arguments)
 
 
+async def _create_income_bulk(db: AsyncSession, ctx: WorkspaceContext, arguments: dict) -> object:
+    return await handle_create_transactions_bulk(db, ctx, "income", arguments)
+
+
+async def _create_expense_bulk(db: AsyncSession, ctx: WorkspaceContext, arguments: dict) -> object:
+    return await handle_create_transactions_bulk(db, ctx, "expense", arguments)
+
+
 async def _delete_income(db: AsyncSession, ctx: WorkspaceContext, arguments: dict) -> object:
     return await handle_delete_transaction(db, ctx, "income", arguments)
 
@@ -353,6 +368,27 @@ TOOLS = [
         writes=True,
     ),
     ToolDefinition(
+        "create_category_bulk",
+        "Create several income and/or expense categories (with optional custom fields) in one call."
+        " Names must be unique per type, within the batch and in the workspace." + BULK_NOTE,
+        list_schema(
+            {
+                "categories": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": MAX_BULK_ITEMS,
+                    "items": list_schema(
+                        {"name": {"type": "string"}, "type": category_type_property, "customFields": custom_fields_property},
+                        ["name", "type"],
+                    ),
+                }
+            },
+            ["categories"],
+        ),
+        handle_create_categories_bulk,
+        writes=True,
+    ),
+    ToolDefinition(
         "delete_category",
         "Delete a category from the workspace. Refused if any income or expense entries use it (delete or"
         " move those entries first). Report widgets charting it will show an error until edited.",
@@ -389,6 +425,25 @@ TOOLS = [
         writes=True,
     ),
     ToolDefinition(
+        "create_income_bulk",
+        "Create several income entries in one call, e.g. a week of sales. Each entry is the same as"
+        " create_income: date, categoryId (an income category), amount, optional description and"
+        " customFieldValues." + BULK_NOTE,
+        list_schema(
+            {
+                "entries": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": MAX_BULK_ITEMS,
+                    "items": list_schema(transaction_payload_properties, ["date", "categoryId", "amount"]),
+                }
+            },
+            ["entries"],
+        ),
+        _create_income_bulk,
+        writes=True,
+    ),
+    ToolDefinition(
         "update_income",
         "Update an income entry in the workspace. Only the fields you pass are changed.",
         list_schema({"id": {"type": "string"}, **transaction_payload_properties}, ["id"]),
@@ -415,6 +470,25 @@ TOOLS = [
         "Create an expense entry in the workspace.",
         list_schema(transaction_payload_properties, ["date", "categoryId", "amount"]),
         _create_expense,
+        writes=True,
+    ),
+    ToolDefinition(
+        "create_expense_bulk",
+        "Create several expense entries in one call, e.g. the receipts from a market trip. Each entry is the"
+        " same as create_expense: date, categoryId (an expense category), amount, optional description and"
+        " customFieldValues." + BULK_NOTE,
+        list_schema(
+            {
+                "entries": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": MAX_BULK_ITEMS,
+                    "items": list_schema(transaction_payload_properties, ["date", "categoryId", "amount"]),
+                }
+            },
+            ["entries"],
+        ),
+        _create_expense_bulk,
         writes=True,
     ),
     ToolDefinition(
@@ -569,8 +643,11 @@ TOOLS = [
 TOOLS_BY_NAME = {tool.name: tool for tool in TOOLS}
 
 
-def tool_error(message: str) -> dict:
-    return {"content": text_content({"error": message}), "isError": True}
+def tool_error(message: str, errors: list | None = None) -> dict:
+    payload: dict[str, Any] = {"error": message}
+    if errors:
+        payload["errors"] = errors
+    return {"content": text_content(payload), "isError": True}
 
 
 def http_error_message(exc: HTTPException) -> str:
@@ -595,7 +672,8 @@ async def call_tool(db: AsyncSession, auth: McpApiKeyAuth, name: str, arguments:
         return tool_error(str(exc))
     # Service errors (not found, invalid category/field/aggregation...) go back as tool errors the agent can fix.
     except HTTPException as exc:
-        return tool_error(http_error_message(exc))
+        errors = exc.detail.get("errors") if isinstance(exc.detail, dict) else None
+        return tool_error(http_error_message(exc), errors)
     except ValidationError as exc:
         problems = "; ".join(f"{'.'.join(str(p) for p in e['loc']) or 'arguments'}: {e['msg']}" for e in exc.errors())
         return tool_error(f"Invalid arguments: {problems}")

@@ -21,6 +21,7 @@ from app.schemas.transaction import (
     TransactionUpdate,
 )
 from app.schemas.pagination import DEFAULT_PAGE_LIMIT, SortOrder, clean_search
+from app.services.bulk import bulk_rejected, item_error_message
 from app.services.category_service import get_category_for_business
 
 
@@ -126,16 +127,17 @@ def validate_custom_field_values(
     return values
 
 
-async def create_transaction(
+async def build_transaction(
     db: AsyncSession,
     payload: TransactionCreate,
     transaction_type: TransactionType,
     business_id: UUID,
     user_id: UUID,
-) -> TransactionResponse:
+) -> Transaction:
+    """Validate an entry (category, custom fields) and build it without saving."""
     category = await get_category_for_business(db, payload.categoryId, transaction_type, business_id)
     custom_field_values = validate_custom_field_values(category, payload.customFieldValues)
-    transaction = Transaction(
+    return Transaction(
         date=payload.date,
         category_id=category.id,
         category_name=category.name,
@@ -146,9 +148,43 @@ async def create_transaction(
         business_id=business_id,
         created_by=user_id,
     )
+
+
+async def create_transaction(
+    db: AsyncSession,
+    payload: TransactionCreate,
+    transaction_type: TransactionType,
+    business_id: UUID,
+    user_id: UUID,
+) -> TransactionResponse:
+    transaction = await build_transaction(db, payload, transaction_type, business_id, user_id)
     transaction_id = await transaction_repository.create_transaction(db, transaction)
     created = await transaction_repository.find_transaction_by_id(db, transaction_id)
     return transaction_to_response(created)
+
+
+async def create_transactions_bulk(
+    db: AsyncSession,
+    payloads: list[TransactionCreate],
+    transaction_type: TransactionType,
+    business_id: UUID,
+    user_id: UUID,
+) -> list[TransactionResponse]:
+    """Create up to MAX_BULK_ITEMS entries in one transaction: all are saved, or none if any is invalid."""
+    built: list[Transaction] = []
+    errors: list[dict] = []
+    for index, payload in enumerate(payloads):
+        try:
+            built.append(await build_transaction(db, payload, transaction_type, business_id, user_id))
+        except HTTPException as exc:
+            errors.append({"index": index, "error": item_error_message(exc)})
+    if errors:
+        raise bulk_rejected(errors)
+    db.add_all(built)
+    await db.commit()
+    for transaction in built:
+        await db.refresh(transaction)
+    return [transaction_to_response(transaction) for transaction in built]
 
 
 async def list_transactions(

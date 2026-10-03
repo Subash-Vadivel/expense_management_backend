@@ -11,6 +11,7 @@ from app.models.common import parse_uuid
 from app.repositories import category_repository
 from app.schemas.category import CategoryCreate, CategoryPage, CategoryResponse, CustomFieldCreate, CustomFieldResponse
 from app.schemas.pagination import DEFAULT_PAGE_LIMIT, clean_search
+from app.services.bulk import bulk_rejected, item_error_message
 
 
 def normalize_category_name(name: str) -> str:
@@ -61,6 +62,53 @@ def build_custom_field_definitions(fields: list[CustomFieldCreate]) -> list[dict
     return definitions
 
 
+async def create_categories_bulk(
+    db: AsyncSession,
+    payloads: list[CategoryCreate],
+    business_id: UUID,
+    user_id: UUID,
+) -> list[CategoryResponse]:
+    """Create up to MAX_BULK_ITEMS categories in one transaction: all are saved, or none if any is invalid."""
+    built: list[Category] = []
+    errors: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for index, payload in enumerate(payloads):
+        key = (payload.type, normalize_category_name(payload.name))
+        if key in seen:
+            errors.append({"index": index, "error": f"Duplicate of an earlier {payload.type} category in this batch"})
+            continue
+        seen.add(key)
+        try:
+            if await category_repository.find_category_by_normalized_name(db, business_id, payload.type, key[1]):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already exists for this type")
+            built.append(build_category(payload, business_id, user_id))
+        except HTTPException as exc:
+            errors.append({"index": index, "error": item_error_message(exc)})
+    if errors:
+        raise bulk_rejected(errors)
+    db.add_all(built)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # A category with one of these names was created between the check and the save.
+        await db.rollback()
+        raise bulk_rejected([{"index": None, "error": "A category in this batch already exists for its type"}]) from exc
+    for category in built:
+        await db.refresh(category)
+    return [category_to_response(category) for category in built]
+
+
+def build_category(payload: CategoryCreate, business_id: UUID, user_id: UUID) -> Category:
+    return Category(
+        name=" ".join(payload.name.strip().split()),
+        normalized_name=normalize_category_name(payload.name),
+        type=payload.type,
+        custom_fields=build_custom_field_definitions(payload.customFields),
+        business_id=business_id,
+        created_by=user_id,
+    )
+
+
 async def create_category(
     db: AsyncSession,
     payload: CategoryCreate,
@@ -77,14 +125,7 @@ async def create_category(
             detail="Category already exists for this type",
         )
 
-    category = Category(
-        name=" ".join(payload.name.strip().split()),
-        normalized_name=normalized_name,
-        type=payload.type,
-        custom_fields=build_custom_field_definitions(payload.customFields),
-        business_id=business_id,
-        created_by=user_id,
-    )
+    category = build_category(payload, business_id, user_id)
     try:
         category_id = await category_repository.create_category(db, category)
     except IntegrityError as exc:

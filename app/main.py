@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from app.core.config import settings
 from app.database.postgres import close_database_connection
 from app.mcp.router import router as mcp_router
-from app.routes import auth, businesses, categories, dashboard, expenses, income, invitations, mcp_api_keys
+from app.routes import auth, businesses, categories, dashboard, expenses, income, invitations, mcp_api_keys, reports
 
 app = FastAPI(title=settings.app_name)
 
@@ -26,6 +26,7 @@ app.include_router(categories.router, prefix="/api/categories", tags=["Categorie
 app.include_router(income.router, prefix="/api/income", tags=["Income"])
 app.include_router(expenses.router, prefix="/api/expenses", tags=["Expenses"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(mcp_api_keys.router, prefix="/api/mcp", tags=["MCP API Keys"])
 app.include_router(mcp_router, tags=["MCP"])
 

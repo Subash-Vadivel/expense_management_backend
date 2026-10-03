@@ -21,7 +21,12 @@ class McpApiKeyResponse(BaseModel):
     createdAt: datetime
     lastUsedAt: datetime | None = None
     disabledAt: datetime | None = None
+    canReveal: bool = False
 
 
 class McpApiKeyCreateResponse(McpApiKeyResponse):
+    apiKey: str
+
+
+class McpApiKeyRevealResponse(BaseModel):
     apiKey: str

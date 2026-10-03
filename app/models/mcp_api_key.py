@@ -19,6 +19,8 @@ class McpApiKey(SQLModel, table=True):
     name: str
     key_hash: str = Field(index=True, unique=True)
     key_prefix: str
+    # Fernet-encrypted raw key (see app.core.encryption); None for keys created before it was stored.
+    encrypted_key: str | None = None
     enabled: bool = Field(default=True, index=True)
     business_id: UUID = Field(sa_column=Column(ForeignKey("business_entities.id", ondelete="CASCADE"), nullable=False, index=True))
     created_by: UUID = Field(sa_column=Column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True))

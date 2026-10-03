@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
 from app.dependencies.auth import BusinessAccess, require_business_role
-from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse, McpApiKeyUpdate
+from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse, McpApiKeyRevealResponse, McpApiKeyUpdate
 from app.services import mcp_api_key_service
 
 router = APIRouter()
@@ -26,6 +26,15 @@ async def list_api_keys(
     access: BusinessAccess = Depends(require_business_role("owner", "admin")),
 ) -> list[McpApiKeyResponse]:
     return await mcp_api_key_service.list_api_keys(db, access.business.id)
+
+
+@router.get("/api-keys/{api_key_id}/reveal", response_model=McpApiKeyRevealResponse)
+async def reveal_api_key(
+    api_key_id: str,
+    db: AsyncSession = Depends(get_session),
+    access: BusinessAccess = Depends(require_business_role("owner", "admin")),
+) -> McpApiKeyRevealResponse:
+    return await mcp_api_key_service.reveal_api_key(db, api_key_id, access.business.id)
 
 
 @router.patch("/api-keys/{api_key_id}", response_model=McpApiKeyResponse)

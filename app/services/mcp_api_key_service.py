@@ -9,10 +9,11 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.encryption import decrypt_secret, encrypt_secret
 from app.models.common import parse_uuid
 from app.models.mcp_api_key import McpApiKey
 from app.repositories import mcp_api_key_repository
-from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse
+from app.schemas.mcp_api_key import McpApiKeyCreate, McpApiKeyCreateResponse, McpApiKeyResponse, McpApiKeyRevealResponse
 
 KEY_PREFIX = "lgl_mcp_"
 # Keys issued before the rename still authenticate.
@@ -44,6 +45,7 @@ def api_key_to_response(api_key: McpApiKey) -> McpApiKeyResponse:
         createdAt=api_key.created_at,
         lastUsedAt=api_key.last_used_at,
         disabledAt=api_key.disabled_at,
+        canReveal=api_key.encrypted_key is not None,
     )
 
 
@@ -59,6 +61,7 @@ async def create_api_key(
         name=" ".join(payload.name.strip().split()),
         key_hash=hash_api_key(raw_key),
         key_prefix=key_prefix,
+        encrypted_key=encrypt_secret(raw_key),
         business_id=business_id,
         created_by=user_id,
     )
@@ -89,6 +92,21 @@ async def set_api_key_enabled(
     await mcp_api_key_repository.update_api_key(db, existing)
     updated = await mcp_api_key_repository.find_api_key_by_id(db, existing.id)
     return api_key_to_response(updated)
+
+
+async def reveal_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -> McpApiKeyRevealResponse:
+    api_key = await mcp_api_key_repository.find_api_key_for_business(
+        db, parse_uuid(api_key_id, "API key id"), business_id
+    )
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    raw_key = decrypt_secret(api_key.encrypted_key) if api_key.encrypted_key else None
+    if not raw_key:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This key can't be copied because it was created before keys were stored. Create a new key instead.",
+        )
+    return McpApiKeyRevealResponse(apiKey=raw_key)
 
 
 async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -> None:

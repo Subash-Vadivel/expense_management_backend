@@ -13,6 +13,20 @@ class BusinessCreate(BaseModel):
     legalName: str | None = Field(default=None, max_length=180)
 
 
+class BusinessUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    legalName: str | None = Field(default=None, max_length=180)
+
+
+class BusinessDeleteRequest(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class BusinessDeleteCodeResponse(BaseModel):
+    message: str
+    expiresInMinutes: int
+
+
 class BusinessResponse(BaseModel):
     id: str
     name: str

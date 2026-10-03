@@ -35,8 +35,16 @@ def send_email(to: str, subject: str, html_body: str, text_body: str) -> None:
         logger.exception("Failed to send email to=%s subject=%s", to, subject)
 
 
-def _layout(heading: str, intro_html: str, button_label: str, url: str, footer: str) -> str:
-    safe_url = html.escape(url, quote=True)
+def _layout(heading: str, intro_html: str, button_label: str | None, url: str | None, footer: str) -> str:
+    action_html = ""
+    if button_label and url:
+        safe_url = html.escape(url, quote=True)
+        action_html = f"""
+        <p style="margin:28px 0;">
+          <a href="{safe_url}" style="display:inline-block;background:#2f6b3a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;">{html.escape(button_label)}</a>
+        </p>
+        <p style="font-size:13px;color:#5b665b;line-height:1.5;">If the button doesn't work, copy this link into your browser:<br>
+          <a href="{safe_url}" style="color:#2f6b3a;word-break:break-all;">{safe_url}</a></p>"""
     return f"""<!doctype html>
 <html>
   <body style="margin:0;padding:24px;background:#f4f6f3;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2a1f;">
@@ -44,12 +52,7 @@ def _layout(heading: str, intro_html: str, button_label: str, url: str, footer: 
       <tr><td>
         <p style="margin:0 0 24px;font-size:18px;font-weight:700;color:#2f6b3a;">{BRAND}</p>
         <h1 style="margin:0 0 16px;font-size:22px;">{html.escape(heading)}</h1>
-        <div style="font-size:15px;line-height:1.6;">{intro_html}</div>
-        <p style="margin:28px 0;">
-          <a href="{safe_url}" style="display:inline-block;background:#2f6b3a;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;">{html.escape(button_label)}</a>
-        </p>
-        <p style="font-size:13px;color:#5b665b;line-height:1.5;">If the button doesn't work, copy this link into your browser:<br>
-          <a href="{safe_url}" style="color:#2f6b3a;word-break:break-all;">{safe_url}</a></p>
+        <div style="font-size:15px;line-height:1.6;">{intro_html}</div>{action_html}
         <p style="font-size:13px;color:#5b665b;margin-top:24px;">{html.escape(footer)}</p>
       </td></tr>
     </table>
@@ -110,4 +113,25 @@ def send_invitation_email(to: str, business_name: str, inviter_name: str, role: 
         ),
         f"{inviter_name} invited you to join {business_name} on {BRAND} as {role}.\n\n"
         f"Accept the invitation with {to}:\n{url}\n\nThis invitation expires in 14 days.",
+    )
+
+
+def send_business_delete_code_email(to: str, name: str, business_name: str, code: str, minutes: int) -> None:
+    send_email(
+        to,
+        f"Your code to delete {business_name}: {code}",
+        _layout(
+            f"Confirm deleting {business_name}",
+            f"<p>Hi {html.escape(name)},</p>"
+            f"<p>Use this code to confirm permanently deleting <strong>{html.escape(business_name)}</strong>"
+            " and all of its income, expenses, categories, members and MCP keys:</p>"
+            '<p style="margin:24px 0;font-size:32px;font-weight:700;letter-spacing:8px;font-family:Menlo,Consolas,monospace;">'
+            f"{html.escape(code)}</p>",
+            None,
+            None,
+            f"This code expires in {minutes} minutes. If you didn't request this, someone may have access to your"
+            " account: change your password and don't share this code.",
+        ),
+        f"Hi {name},\n\nYour code to permanently delete {business_name} is: {code}\n\n"
+        f"It expires in {minutes} minutes. If you didn't request this, change your password and don't share this code.",
     )

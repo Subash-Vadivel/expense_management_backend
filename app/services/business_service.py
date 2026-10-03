@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -9,19 +10,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.rate_limit import business_delete_attempt_limiter, business_delete_code_limiter
 from app.core.security import generate_token, hash_token
 from app.models.business import BusinessEntity, BusinessInvitation, BusinessMembership
 from app.models.common import parse_uuid
 from app.models.user import User
-from app.repositories import business_repository
+from app.models.user_token import UserToken
+from app.repositories import business_repository, user_token_repository
 from app.services import email_service
 from app.schemas.business import (
     BusinessCreate,
+    BusinessDeleteCodeResponse,
     BusinessDetailResponse,
     BusinessInvitationCreate,
     BusinessInvitationResponse,
     BusinessMemberResponse,
     BusinessResponse,
+    BusinessUpdate,
     InvitationAcceptResponse,
     InvitationInspectResponse,
 )
@@ -30,6 +35,8 @@ MANAGE_USERS_ROLES = {"owner", "admin"}
 WRITE_FINANCE_ROLES = {"owner", "admin", "manager"}
 MANAGE_MCP_ROLES = {"owner", "admin"}
 ALL_ROLES = {"owner", "admin", "manager", "viewer"}
+DELETE_BUSINESS_PURPOSE = "delete_business"
+DELETE_CODE_EXPIRE_MINUTES = 10
 
 
 def normalize_email(email: str | EmailStr) -> str:
@@ -254,3 +261,93 @@ async def accept_invitation(db: AsyncSession, token: str, user: User) -> Invitat
     invitation.accepted_at = datetime.utcnow()
     await business_repository.update_invitation(db, invitation)
     return InvitationAcceptResponse(business=business_to_response(business, membership))
+
+
+def clean_name(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+async def update_business(
+    db: AsyncSession,
+    business: BusinessEntity,
+    membership: BusinessMembership,
+    payload: BusinessUpdate,
+) -> BusinessResponse:
+    name = clean_name(payload.name)
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required")
+    business.name = name
+    business.legal_name = clean_name(payload.legalName) if payload.legalName and payload.legalName.strip() else None
+    business.updated_at = datetime.utcnow()
+    updated = await business_repository.update_business(db, business)
+    return business_to_response(updated, membership)
+
+
+def delete_code_hash(business_id: UUID, user_id: UUID, code: str) -> str:
+    # Bind the code to this business and user so it can't be replayed elsewhere.
+    return hash_token(f"{business_id}:{user_id}:{code}")
+
+
+def rate_limited(message: str, retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={"code": "rate_limited", "message": message, "retryAfterSeconds": retry_after},
+    )
+
+
+async def send_delete_code(
+    db: AsyncSession,
+    business: BusinessEntity,
+    user: User,
+    background_tasks: BackgroundTasks,
+) -> BusinessDeleteCodeResponse:
+    limit_key = f"{user.id}:{business.id}"
+    if not business_delete_code_limiter.hit(limit_key):
+        raise rate_limited(
+            "Too many codes requested.", business_delete_code_limiter.retry_after_seconds(limit_key)
+        )
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await user_token_repository.invalidate_tokens_for_user(db, user.id, DELETE_BUSINESS_PURPOSE)
+    await user_token_repository.create_token(
+        db,
+        UserToken(
+            user_id=user.id,
+            purpose=DELETE_BUSINESS_PURPOSE,
+            token_hash=delete_code_hash(business.id, user.id, code),
+            expires_at=datetime.utcnow() + timedelta(minutes=DELETE_CODE_EXPIRE_MINUTES),
+        ),
+    )
+    business_delete_attempt_limiter.reset(limit_key)
+    background_tasks.add_task(
+        email_service.send_business_delete_code_email,
+        user.email,
+        user.name,
+        business.name,
+        code,
+        DELETE_CODE_EXPIRE_MINUTES,
+    )
+    return BusinessDeleteCodeResponse(
+        message=f"We sent a 6-digit code to {user.email}.",
+        expiresInMinutes=DELETE_CODE_EXPIRE_MINUTES,
+    )
+
+
+async def delete_business(db: AsyncSession, business: BusinessEntity, user: User, code: str) -> None:
+    limit_key = f"{user.id}:{business.id}"
+    if not business_delete_attempt_limiter.hit(limit_key):
+        raise rate_limited(
+            "Too many incorrect codes. Request a new code.",
+            business_delete_attempt_limiter.retry_after_seconds(limit_key),
+        )
+    token = await user_token_repository.find_valid_token(
+        db, delete_code_hash(business.id, user.id, code), DELETE_BUSINESS_PURPOSE
+    )
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_code", "message": "The code is incorrect or has expired"},
+        )
+    await user_token_repository.invalidate_tokens_for_user(db, user.id, DELETE_BUSINESS_PURPOSE)
+    await business_repository.delete_business(db, business.id)
+    await db.commit()
+    business_delete_attempt_limiter.reset(limit_key)

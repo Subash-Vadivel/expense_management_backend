@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -21,6 +21,19 @@ async def create_business(db: AsyncSession, business: BusinessEntity, membership
 
 async def get_business(db: AsyncSession, business_id: UUID) -> BusinessEntity | None:
     return await db.get(BusinessEntity, business_id)
+
+
+async def update_business(db: AsyncSession, business: BusinessEntity) -> BusinessEntity:
+    db.add(business)
+    await db.commit()
+    await db.refresh(business)
+    return business
+
+
+async def delete_business(db: AsyncSession, business_id: UUID) -> None:
+    """Delete the business; memberships, invitations, categories, transactions and MCP keys cascade in the DB.
+    Does not commit."""
+    await db.execute(delete(BusinessEntity).where(BusinessEntity.id == business_id))
 
 
 async def get_membership(db: AsyncSession, business_id: UUID, user_id: UUID) -> BusinessMembership | None:

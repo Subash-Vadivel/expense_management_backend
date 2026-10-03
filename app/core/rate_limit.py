@@ -37,6 +37,10 @@ class SlidingWindowLimiter:
             self._hits[key].append(now)
             return True
 
+    def reset(self, key: str) -> None:
+        with self._lock:
+            self._hits.pop(key, None)
+
     def remaining(self, key: str) -> int:
         with self._lock:
             return max(0, self.max_hits - len(self._prune(key, time.monotonic())))
@@ -54,3 +58,6 @@ DAY_SECONDS = 24 * 60 * 60
 
 verification_resend_limiter = SlidingWindowLimiter(max_hits=3, window_seconds=DAY_SECONDS)
 password_reset_limiter = SlidingWindowLimiter(max_hits=3, window_seconds=DAY_SECONDS)
+# Deleting a business: sending codes, and guessing them (counter is reset when a new code is sent).
+business_delete_code_limiter = SlidingWindowLimiter(max_hits=3, window_seconds=60 * 60)
+business_delete_attempt_limiter = SlidingWindowLimiter(max_hits=5, window_seconds=10 * 60)

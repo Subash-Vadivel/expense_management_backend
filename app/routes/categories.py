@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
@@ -8,7 +8,7 @@ from app.dependencies.auth import BusinessAccess, get_business_access, require_b
 from app.models.category import CategoryType
 from app.schemas.category import CategoryCreate, CategoryPage, CategoryResponse
 from app.schemas.pagination import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, MAX_SEARCH_LENGTH
-from app.services.category_service import create_category, list_categories
+from app.services.category_service import create_category, delete_category, list_categories
 
 router = APIRouter()
 
@@ -32,3 +32,13 @@ async def list_by_type(
     access: BusinessAccess = Depends(get_business_access),
 ) -> CategoryPage:
     return await list_categories(db, type, access.business.id, limit, offset, search)
+
+
+@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete(
+    category_id: str,
+    db: AsyncSession = Depends(get_session),
+    access: BusinessAccess = Depends(require_business_role("owner", "admin", "manager")),
+) -> Response:
+    await delete_category(db, category_id, access.business.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

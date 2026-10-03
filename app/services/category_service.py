@@ -123,3 +123,29 @@ async def get_category_for_business(
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     return category
+
+
+def category_in_use() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "category_in_use",
+            "message": "Records already exist for this category, so it can't be deleted.",
+        },
+    )
+
+
+async def delete_category(db: AsyncSession, category_id: str, business_id: UUID) -> None:
+    category = await category_repository.find_category_in_business(
+        db, parse_uuid(category_id, "category id"), business_id
+    )
+    if not category:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    if await category_repository.category_has_transactions(db, category.id):
+        raise category_in_use()
+    try:
+        await category_repository.delete_category(db, category)
+    except IntegrityError as exc:
+        # An entry was added between the check and the delete; the FK (ON DELETE RESTRICT) caught it.
+        await db.rollback()
+        raise category_in_use() from exc

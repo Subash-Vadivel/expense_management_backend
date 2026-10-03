@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import exists, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.models.category import Category, CategoryType
+from app.models.transaction import Transaction
 from app.schemas.pagination import LIKE_ESCAPE, like_pattern
 
 
@@ -74,3 +75,20 @@ async def list_categories(db: AsyncSession, filters: list, limit: int = 50, offs
 async def count_categories(db: AsyncSession, filters: list) -> int:
     result = await db.execute(select(func.count(Category.id)).where(*filters))
     return int(result.scalar_one())
+
+
+async def find_category_in_business(db: AsyncSession, category_id: UUID, business_id: UUID) -> Category | None:
+    result = await db.execute(
+        select(Category).where(Category.id == category_id, Category.business_id == business_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def category_has_transactions(db: AsyncSession, category_id: UUID) -> bool:
+    result = await db.execute(select(exists().where(Transaction.category_id == category_id)))
+    return bool(result.scalar())
+
+
+async def delete_category(db: AsyncSession, category: Category) -> None:
+    await db.delete(category)
+    await db.commit()

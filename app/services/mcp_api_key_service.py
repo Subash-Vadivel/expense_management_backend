@@ -23,6 +23,8 @@ LEGACY_KEY_PREFIXES = ("farm_mcp_",)
 class McpApiKeyAuth:
     user_id: UUID
     business_id: UUID
+    # The key creator's current role in the business; tools are limited by it.
+    role: str
 
 
 def hash_api_key(api_key: str) -> str:
@@ -100,9 +102,18 @@ async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -
 async def authenticate_api_key(db: AsyncSession, raw_key: str) -> McpApiKeyAuth | None:
     if not raw_key.startswith((KEY_PREFIX, *LEGACY_KEY_PREFIXES)):
         return None
-    api_key = await mcp_api_key_repository.find_api_key_by_hash(db, hash_api_key(raw_key))
-    if not api_key or not api_key.enabled:
+    row = await mcp_api_key_repository.find_api_key_with_creator_membership(db, hash_api_key(raw_key))
+    if not row:
         return None
+    api_key, membership = row
+    if not api_key.enabled:
+        return None
+    # A key never has more access than the person who created it has right now.
+    if not membership or membership.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The user who created this API key no longer has access to this business",
+        )
     api_key.last_used_at = datetime.utcnow()
     await mcp_api_key_repository.update_api_key(db, api_key)
-    return McpApiKeyAuth(user_id=api_key.created_by, business_id=api_key.business_id)
+    return McpApiKeyAuth(user_id=api_key.created_by, business_id=api_key.business_id, role=membership.role)

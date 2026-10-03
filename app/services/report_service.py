@@ -11,6 +11,7 @@ from app.models.common import parse_uuid
 from app.models.report import Report, ReportWidget
 from app.repositories import report_repository
 from app.schemas.report import (
+    WIDGET_SIZES,
     QueryBucket,
     QuerySeries,
     ReportCreate,
@@ -31,6 +32,8 @@ from app.services.dashboard_service import validate_date_range
 
 MAX_BUCKETS = 366
 PIE_TYPES = {"pie", "donut"}
+# Chart types with no date axis: one total per series over the range.
+TOTAL_ONLY_TYPES = PIE_TYPES | {"kpi"}
 # Which aggregations make sense for each metric.
 AMOUNT_AGGREGATIONS = {"sum", "avg", "min", "max", "count"}
 NUMBER_FIELD_AGGREGATIONS = {"sum", "avg", "min", "max"}
@@ -143,8 +146,28 @@ async def delete_report(db: AsyncSession, report_id: str, business_id: UUID) -> 
 
 # --- widgets ---------------------------------------------------------------------------------
 
-DEFAULT_WIDGET_WIDTH = 6  # half of the 12-column grid
-DEFAULT_WIDGET_HEIGHT = 8
+def fit_layout(chart_type: str, layout: WidgetLayout) -> WidgetLayout:
+    """Clamp a layout into the chart type's min..max size (and the grid)."""
+    sizes = WIDGET_SIZES[chart_type]
+    (min_w, min_h), (max_w, max_h) = sizes["min"], sizes["max"]
+    w = min(max(layout.w, min_w), max_w)
+    h = min(max(layout.h, min_h), max_h)
+    return WidgetLayout(x=min(layout.x, 12 - w), y=layout.y, w=w, h=h)
+
+
+def check_layout(chart_type: str, layout: WidgetLayout) -> None:
+    sizes = WIDGET_SIZES[chart_type]
+    (min_w, min_h), (max_w, max_h) = sizes["min"], sizes["max"]
+    if not (min_w <= layout.w <= max_w and min_h <= layout.h <= max_h):
+        raise bad_request(
+            f"A {chart_type} widget must be {min_w}-{max_w} columns wide and {min_h}-{max_h} rows tall"
+        )
+
+
+def default_layout(chart_type: str, widgets: list[ReportWidget]) -> WidgetLayout:
+    """The chart type's default size, below the existing widgets."""
+    w, h = WIDGET_SIZES[chart_type]["default"]
+    return WidgetLayout(x=0, y=bottom_of(widgets), w=w, h=h)
 
 
 def bottom_of(widgets: list[ReportWidget]) -> int:
@@ -161,13 +184,11 @@ async def create_widget(
     db: AsyncSession, report_id: str, payload: WidgetCreate, business_id: UUID
 ) -> WidgetResponse:
     report = await load_report(db, report_id, business_id)
+    check_series_count(payload.chartType, payload.config)
     await resolve_series(db, business_id, payload.config.series)
-    layout = payload.layout or WidgetLayout(
-        x=0,
-        y=bottom_of(await report_repository.list_widgets(db, report.id)),
-        w=DEFAULT_WIDGET_WIDTH,
-        h=DEFAULT_WIDGET_HEIGHT,
-    )
+    if payload.layout:
+        check_layout(payload.chartType, payload.layout)
+    layout = payload.layout or default_layout(payload.chartType, await report_repository.list_widgets(db, report.id))
     widget = ReportWidget(
         report_id=report.id,
         title=clean_text(payload.title) or "Untitled widget",
@@ -201,6 +222,9 @@ async def update_widget(
     if payload.config is not None:
         await resolve_series(db, business_id, payload.config.series)
         widget.config = payload.config.model_dump(mode="json")
+    check_series_count(widget.chart_type, WidgetConfig.model_validate(widget.config))
+    # Changing the chart type (e.g. line -> KPI) brings the size within the new type's limits.
+    widget.layout = fit_layout(widget.chart_type, WidgetLayout.model_validate(widget.layout)).model_dump()
     widget.updated_at = datetime.utcnow()
     db.add(widget)
     await touch(db, report)
@@ -228,7 +252,9 @@ async def save_layout(
         raise bad_request("Layout includes widgets that are not in this report")
     for item in payload.items:
         widget = by_id[item.id]
-        widget.layout = WidgetLayout.model_validate(item.model_dump(exclude={"id"})).model_dump()
+        layout = WidgetLayout.model_validate(item.model_dump(exclude={"id"}))
+        check_layout(widget.chart_type, layout)
+        widget.layout = layout.model_dump()
         db.add(widget)
     await touch(db, report)
     await db.commit()
@@ -350,12 +376,25 @@ def series_label(series: SeriesConfig, category: Category, field: dict | None) -
     return f"{category.name} · {metric}{suffix}"
 
 
+def check_series_count(chart_type: str, config: WidgetConfig) -> None:
+    if chart_type == "kpi" and len(config.series) != 1:
+        raise bad_request("A KPI widget shows exactly one series")
+
+
+def previous_period(start: date, end: date) -> tuple[date, date]:
+    """The equally long period ending the day before start (e.g. 30 days -> the 30 days before)."""
+    length = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    return previous_end - timedelta(days=length - 1), previous_end
+
+
 async def run_query(db: AsyncSession, payload: ReportQueryRequest, business_id: UUID) -> ReportQueryResponse:
     validate_date_range(payload.startDate, payload.endDate)
     config = payload.config
     resolved = await resolve_series(db, business_id, config.series)
     category_ids = sorted({category.id for category, _ in resolved.values()}, key=str)
-    interval = None if payload.chartType in PIE_TYPES else config.interval
+    check_series_count(payload.chartType, config)
+    interval = None if payload.chartType in TOTAL_ONLY_TYPES else config.interval
 
     # Percent series divide by the category's entry count, which the amount query provides.
     amount_categories = {
@@ -428,6 +467,15 @@ async def run_query(db: AsyncSession, payload: ReportQueryRequest, business_id: 
                 total=total,
             )
         )
+    if payload.chartType == "kpi" and payload.startDate and payload.endDate:
+        previous = previous_period(payload.startDate, payload.endDate)
+        prior = await run_query(
+            db,
+            payload.model_copy(update={"chartType": "pie", "startDate": previous[0], "endDate": previous[1]}),
+            business_id,
+        )
+        for current, before in zip(series_out, prior.series):
+            current.previousTotal = before.total
     return ReportQueryResponse(
         buckets=[QueryBucket(key=bucket, label=bucket_label(bucket, interval)) for bucket in buckets],
         series=series_out,

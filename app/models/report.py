@@ -8,7 +8,7 @@ from sqlalchemy import Column, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
-ChartType = Literal["line", "area", "bar", "pie", "donut"]
+ChartType = Literal["line", "area", "bar", "pie", "donut", "kpi"]
 
 
 def utc_now() -> datetime:

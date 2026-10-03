@@ -5,12 +5,23 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ChartType = Literal["line", "area", "bar", "pie", "donut"]
+ChartType = Literal["line", "area", "bar", "pie", "donut", "kpi"]
 Interval = Literal["day", "week", "month"]
 # percent: share of the category's entries where a STRING/BOOLEAN field is filled (true).
 Aggregation = Literal["sum", "avg", "min", "max", "count", "percent"]
 MAX_SERIES = 8
 GRID_COLUMNS = 12
+# Grid sizes per chart type, in columns (of 12) and rows: create/clone use "default", resizing is
+# limited to min..max. Keep in sync with WIDGET_SIZES in frontend src/components/reports/reportUtils.js.
+CHART_SIZE = {"min": (2, 3), "default": (2, 3), "max": (GRID_COLUMNS, 20)}
+WIDGET_SIZES = {
+    "line": CHART_SIZE,
+    "area": CHART_SIZE,
+    "bar": CHART_SIZE,
+    "pie": CHART_SIZE,
+    "donut": CHART_SIZE,
+    "kpi": {"min": (2, 2), "default": (2, 2), "max": (4, 4)},
+}
 
 
 class StrictModel(BaseModel):
@@ -77,8 +88,9 @@ class WidgetLayout(StrictModel):
 
     x: int = Field(ge=0, lt=GRID_COLUMNS)
     y: int = Field(ge=0, le=10_000)
-    w: int = Field(ge=2, le=GRID_COLUMNS)
-    h: int = Field(ge=4, le=40)
+    # Structural bounds only; per-chart-type limits are checked against WIDGET_SIZES.
+    w: int = Field(ge=1, le=GRID_COLUMNS)
+    h: int = Field(ge=1, le=40)
 
     @model_validator(mode="after")
     def fits_grid(self) -> "WidgetLayout":
@@ -154,6 +166,8 @@ class QuerySeries(BaseModel):
     aggregation: Aggregation
     values: list[float | None]
     total: float | None
+    # KPI only: the same aggregate over the equally long period just before the range.
+    previousTotal: float | None = None
 
 
 class ReportQueryResponse(BaseModel):

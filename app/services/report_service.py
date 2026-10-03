@@ -480,3 +480,31 @@ async def run_query(db: AsyncSession, payload: ReportQueryRequest, business_id: 
         buckets=[QueryBucket(key=bucket, label=bucket_label(bucket, interval)) for bucket in buckets],
         series=series_out,
     )
+
+
+async def get_widget_data(
+    db: AsyncSession,
+    report_id: str,
+    widget_id: str,
+    business_id: UUID,
+    start_date: date | None,
+    end_date: date | None,
+) -> dict:
+    """A saved widget's computed data. Widgets pinned to their own range ignore start/end."""
+    report = await load_report(db, report_id, business_id)
+    widget = await load_widget(db, report, widget_id)
+    config = WidgetConfig.model_validate(widget.config)
+    if config.dateRange.mode == "custom":
+        start_date, end_date = config.dateRange.startDate, config.dateRange.endDate
+    data = await run_query(
+        db,
+        ReportQueryRequest(chartType=widget.chart_type, config=config, startDate=start_date, endDate=end_date),
+        business_id,
+    )
+    return {
+        "widgetId": str(widget.id),
+        "title": widget.title,
+        "chartType": widget.chart_type,
+        "range": {"startDate": start_date, "endDate": end_date, "pinnedByWidget": config.dateRange.mode == "custom"},
+        **data.model_dump(),
+    }

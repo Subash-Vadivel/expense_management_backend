@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.mcp.errors import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, json_rpc_error
 from app.mcp.schemas import JsonRpcRequest
-from app.mcp.tool_registry import call_tool, tools_for
+from app.mcp.tool_registry import TOOLS, call_tool
 from app.services.mcp_api_key_service import McpApiKeyAuth
 
 SERVER_INFO = {"name": "ledgerline-mcp", "version": "0.1.0"}
@@ -44,7 +44,7 @@ async def handle_json_rpc_message(
     if request.method == "ping":
         return json_rpc_result(request.id, {})
     if request.method == "tools/list":
-        return json_rpc_result(request.id, {"tools": [tool.to_mcp() for tool in tools_for(auth)]})
+        return json_rpc_result(request.id, {"tools": [tool.to_mcp() for tool in TOOLS]})
     if request.method == "tools/call":
         params = request.params or {}
         name = params.get("name")

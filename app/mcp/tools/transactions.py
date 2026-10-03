@@ -4,14 +4,14 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
-from app.services.mcp_api_key_service import McpApiKeyAuth
+from app.mcp.workspace import WorkspaceContext
 from app.mcp.tools.list_arguments import TransactionListArguments
 from app.services.transaction_service import create_transaction, delete_transaction, list_transactions, update_transaction
 
 
 async def handle_list_transactions(
     db: AsyncSession,
-    auth: McpApiKeyAuth,
+    auth: WorkspaceContext,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -33,7 +33,7 @@ async def handle_list_transactions(
 
 async def handle_create_transaction(
     db: AsyncSession,
-    auth: McpApiKeyAuth,
+    auth: WorkspaceContext,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -43,7 +43,7 @@ async def handle_create_transaction(
 
 async def handle_update_transaction(
     db: AsyncSession,
-    auth: McpApiKeyAuth,
+    auth: WorkspaceContext,
     transaction_type: str,
     arguments: dict,
 ) -> object:
@@ -54,7 +54,7 @@ async def handle_update_transaction(
 
 async def handle_delete_transaction(
     db: AsyncSession,
-    auth: McpApiKeyAuth,
+    auth: WorkspaceContext,
     transaction_type: str,
     arguments: dict,
 ) -> object:

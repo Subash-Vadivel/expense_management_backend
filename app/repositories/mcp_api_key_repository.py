@@ -6,7 +6,6 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.models.business import BusinessMembership
 from app.models.mcp_api_key import McpApiKey
 
 
@@ -21,39 +20,21 @@ async def find_api_key_by_id(db: AsyncSession, api_key_id: UUID) -> McpApiKey | 
     return await db.get(McpApiKey, api_key_id)
 
 
-async def find_api_key_for_business(
-    db: AsyncSession,
-    api_key_id: UUID,
-    business_id: UUID,
-) -> McpApiKey | None:
+async def find_api_key_for_user(db: AsyncSession, api_key_id: UUID, user_id: UUID) -> McpApiKey | None:
     result = await db.execute(
-        select(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.business_id == business_id)
+        select(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
     )
     return result.scalar_one_or_none()
 
 
-async def find_api_key_with_creator_membership(
-    db: AsyncSession, key_hash: str
-) -> tuple[McpApiKey, BusinessMembership | None] | None:
-    """Fetch the key and its creator's current membership in the key's business in one round trip."""
-    result = await db.execute(
-        select(McpApiKey, BusinessMembership)
-        .outerjoin(
-            BusinessMembership,
-            (BusinessMembership.user_id == McpApiKey.created_by)
-            & (BusinessMembership.business_id == McpApiKey.business_id),
-        )
-        .where(McpApiKey.key_hash == key_hash)
-    )
-    row = result.first()
-    return tuple(row) if row else None
+async def find_api_key_by_hash(db: AsyncSession, key_hash: str) -> McpApiKey | None:
+    result = await db.execute(select(McpApiKey).where(McpApiKey.key_hash == key_hash))
+    return result.scalar_one_or_none()
 
 
-async def list_api_keys_for_business(db: AsyncSession, business_id: UUID) -> list[McpApiKey]:
+async def list_api_keys_for_user(db: AsyncSession, user_id: UUID) -> list[McpApiKey]:
     result = await db.execute(
-        select(McpApiKey)
-        .where(McpApiKey.business_id == business_id)
-        .order_by(McpApiKey.created_at.desc())
+        select(McpApiKey).where(McpApiKey.created_by == user_id).order_by(McpApiKey.created_at.desc())
     )
     return list(result.scalars().all())
 
@@ -64,13 +45,9 @@ async def update_api_key(db: AsyncSession, api_key: McpApiKey) -> None:
     await db.refresh(api_key)
 
 
-async def delete_api_key(
-    db: AsyncSession,
-    api_key_id: UUID,
-    business_id: UUID,
-) -> int:
+async def delete_api_key(db: AsyncSession, api_key_id: UUID, user_id: UUID) -> int:
     result = await db.execute(
-        delete(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.business_id == business_id)
+        delete(McpApiKey).where(McpApiKey.id == api_key_id, McpApiKey.created_by == user_id)
     )
     await db.commit()
     return result.rowcount or 0

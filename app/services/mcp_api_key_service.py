@@ -22,10 +22,10 @@ LEGACY_KEY_PREFIXES = ("farm_mcp_",)
 
 @dataclass(frozen=True)
 class McpApiKeyAuth:
+    """An authenticated key: acts as its creator. The workspace and role are resolved per tool call."""
+
     user_id: UUID
-    business_id: UUID
-    # The key creator's current role in the business; tools are limited by it.
-    role: str
+    key_id: UUID
 
 
 def hash_api_key(api_key: str) -> str:
@@ -52,7 +52,6 @@ def api_key_to_response(api_key: McpApiKey) -> McpApiKeyResponse:
 async def create_api_key(
     db: AsyncSession,
     payload: McpApiKeyCreate,
-    business_id: UUID,
     user_id: UUID,
 ) -> McpApiKeyCreateResponse:
     raw_key = generate_api_key()
@@ -62,7 +61,6 @@ async def create_api_key(
         key_hash=hash_api_key(raw_key),
         key_prefix=key_prefix,
         encrypted_key=encrypt_secret(raw_key),
-        business_id=business_id,
         created_by=user_id,
     )
     api_key_id = await mcp_api_key_repository.create_api_key(db, api_key)
@@ -70,20 +68,18 @@ async def create_api_key(
     return McpApiKeyCreateResponse(**api_key_to_response(created).model_dump(), apiKey=raw_key)
 
 
-async def list_api_keys(db: AsyncSession, business_id: UUID) -> list[McpApiKeyResponse]:
-    api_keys = await mcp_api_key_repository.list_api_keys_for_business(db, business_id)
+async def list_api_keys(db: AsyncSession, user_id: UUID) -> list[McpApiKeyResponse]:
+    api_keys = await mcp_api_key_repository.list_api_keys_for_user(db, user_id)
     return [api_key_to_response(api_key) for api_key in api_keys]
 
 
 async def set_api_key_enabled(
     db: AsyncSession,
     api_key_id: str,
-    business_id: UUID,
+    user_id: UUID,
     enabled: bool,
 ) -> McpApiKeyResponse:
-    existing = await mcp_api_key_repository.find_api_key_for_business(
-        db, parse_uuid(api_key_id, "API key id"), business_id
-    )
+    existing = await mcp_api_key_repository.find_api_key_for_user(db, parse_uuid(api_key_id, "API key id"), user_id)
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
@@ -94,10 +90,8 @@ async def set_api_key_enabled(
     return api_key_to_response(updated)
 
 
-async def reveal_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -> McpApiKeyRevealResponse:
-    api_key = await mcp_api_key_repository.find_api_key_for_business(
-        db, parse_uuid(api_key_id, "API key id"), business_id
-    )
+async def reveal_api_key(db: AsyncSession, api_key_id: str, user_id: UUID) -> McpApiKeyRevealResponse:
+    api_key = await mcp_api_key_repository.find_api_key_for_user(db, parse_uuid(api_key_id, "API key id"), user_id)
     if not api_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
     raw_key = decrypt_secret(api_key.encrypted_key) if api_key.encrypted_key else None
@@ -109,10 +103,8 @@ async def reveal_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -
     return McpApiKeyRevealResponse(apiKey=raw_key)
 
 
-async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -> None:
-    deleted_count = await mcp_api_key_repository.delete_api_key(
-        db, parse_uuid(api_key_id, "API key id"), business_id
-    )
+async def delete_api_key(db: AsyncSession, api_key_id: str, user_id: UUID) -> None:
+    deleted_count = await mcp_api_key_repository.delete_api_key(db, parse_uuid(api_key_id, "API key id"), user_id)
     if deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
@@ -120,18 +112,9 @@ async def delete_api_key(db: AsyncSession, api_key_id: str, business_id: UUID) -
 async def authenticate_api_key(db: AsyncSession, raw_key: str) -> McpApiKeyAuth | None:
     if not raw_key.startswith((KEY_PREFIX, *LEGACY_KEY_PREFIXES)):
         return None
-    row = await mcp_api_key_repository.find_api_key_with_creator_membership(db, hash_api_key(raw_key))
-    if not row:
+    api_key = await mcp_api_key_repository.find_api_key_by_hash(db, hash_api_key(raw_key))
+    if not api_key or not api_key.enabled:
         return None
-    api_key, membership = row
-    if not api_key.enabled:
-        return None
-    # A key never has more access than the person who created it has right now.
-    if not membership or membership.status != "active":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user who created this API key no longer has access to this business",
-        )
     api_key.last_used_at = datetime.utcnow()
     await mcp_api_key_repository.update_api_key(db, api_key)
-    return McpApiKeyAuth(user_id=api_key.created_by, business_id=api_key.business_id, role=membership.role)
+    return McpApiKeyAuth(user_id=api_key.created_by, key_id=api_key.id)

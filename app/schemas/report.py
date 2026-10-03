@@ -6,11 +6,11 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ChartType = Literal["line", "area", "bar", "pie", "donut"]
-WidgetWidth = Literal["half", "full"]
 Interval = Literal["day", "week", "month"]
 # percent: share of the category's entries where a STRING/BOOLEAN field is filled (true).
 Aggregation = Literal["sum", "avg", "min", "max", "count", "percent"]
 MAX_SERIES = 8
+GRID_COLUMNS = 12
 
 
 class StrictModel(BaseModel):
@@ -72,22 +72,41 @@ class ReportUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
+class WidgetLayout(StrictModel):
+    """Placement on the report's 12-column grid (rows are a fixed height in the UI)."""
+
+    x: int = Field(ge=0, lt=GRID_COLUMNS)
+    y: int = Field(ge=0, le=10_000)
+    w: int = Field(ge=2, le=GRID_COLUMNS)
+    h: int = Field(ge=4, le=40)
+
+    @model_validator(mode="after")
+    def fits_grid(self) -> "WidgetLayout":
+        if self.x + self.w > GRID_COLUMNS:
+            raise ValueError(f"x + w must be at most {GRID_COLUMNS}")
+        return self
+
+
 class WidgetCreate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     chartType: ChartType
     config: WidgetConfig
-    width: WidgetWidth = "half"
+    # Omitted: placed at the default size below the existing widgets.
+    layout: WidgetLayout | None = None
 
 
 class WidgetUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     chartType: ChartType | None = None
     config: WidgetConfig | None = None
-    width: WidgetWidth | None = None
 
 
-class WidgetReorder(BaseModel):
-    ids: list[str] = Field(min_length=1, max_length=200)
+class LayoutItem(WidgetLayout):
+    id: str
+
+
+class ReportLayoutUpdate(BaseModel):
+    items: list[LayoutItem] = Field(min_length=1, max_length=200)
 
 
 class WidgetResponse(BaseModel):
@@ -96,8 +115,7 @@ class WidgetResponse(BaseModel):
     title: str
     chartType: ChartType
     config: WidgetConfig
-    position: int
-    width: WidgetWidth
+    layout: WidgetLayout
     createdAt: datetime
     updatedAt: datetime
 

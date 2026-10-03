@@ -35,7 +35,7 @@ async def list_widgets(db: AsyncSession, report_id: UUID) -> list[ReportWidget]:
     result = await db.execute(
         select(ReportWidget)
         .where(ReportWidget.report_id == report_id)
-        .order_by(ReportWidget.position.asc(), ReportWidget.created_at.asc())
+        .order_by(ReportWidget.created_at.asc())
     )
     return list(result.scalars().all())
 
@@ -45,13 +45,6 @@ async def get_widget(db: AsyncSession, widget_id: UUID, report_id: UUID) -> Repo
         select(ReportWidget).where(ReportWidget.id == widget_id, ReportWidget.report_id == report_id)
     )
     return result.scalar_one_or_none()
-
-
-async def next_widget_position(db: AsyncSession, report_id: UUID) -> int:
-    result = await db.execute(
-        select(func.coalesce(func.max(ReportWidget.position), -1)).where(ReportWidget.report_id == report_id)
-    )
-    return int(result.scalar_one()) + 1
 
 
 async def find_categories(db: AsyncSession, business_id: UUID, category_ids: list[UUID]) -> list[Category]:

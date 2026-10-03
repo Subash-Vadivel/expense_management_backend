@@ -8,12 +8,12 @@ from app.dependencies.auth import BusinessAccess, get_business_access, require_b
 from app.schemas.report import (
     ReportCreate,
     ReportDetailResponse,
+    ReportLayoutUpdate,
     ReportQueryRequest,
     ReportQueryResponse,
     ReportResponse,
     ReportUpdate,
     WidgetCreate,
-    WidgetReorder,
     WidgetResponse,
     WidgetUpdate,
 )
@@ -88,14 +88,14 @@ async def create_widget(
     return await report_service.create_widget(db, report_id, payload, access.business.id)
 
 
-@router.post("/{report_id}/widgets/reorder", response_model=list[WidgetResponse])
-async def reorder_widgets(
+@router.put("/{report_id}/layout", response_model=list[WidgetResponse])
+async def save_layout(
     report_id: str,
-    payload: WidgetReorder,
+    payload: ReportLayoutUpdate,
     db: AsyncSession = Depends(get_session),
     access: BusinessAccess = Depends(editor),
 ) -> list[WidgetResponse]:
-    return await report_service.reorder_widgets(db, report_id, payload, access.business.id)
+    return await report_service.save_layout(db, report_id, payload, access.business.id)
 
 
 @router.patch("/{report_id}/widgets/{widget_id}", response_model=WidgetResponse)

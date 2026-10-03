@@ -15,6 +15,7 @@ from app.schemas.report import (
     QuerySeries,
     ReportCreate,
     ReportDetailResponse,
+    ReportLayoutUpdate,
     ReportQueryRequest,
     ReportQueryResponse,
     ReportResponse,
@@ -22,7 +23,7 @@ from app.schemas.report import (
     SeriesConfig,
     WidgetConfig,
     WidgetCreate,
-    WidgetReorder,
+    WidgetLayout,
     WidgetResponse,
     WidgetUpdate,
 )
@@ -75,8 +76,7 @@ def widget_to_response(widget: ReportWidget) -> WidgetResponse:
         title=widget.title,
         chartType=widget.chart_type,
         config=WidgetConfig.model_validate(widget.config),
-        position=widget.position,
-        width=widget.width,
+        layout=WidgetLayout.model_validate(widget.layout),
         createdAt=widget.created_at,
         updatedAt=widget.updated_at,
     )
@@ -143,6 +143,14 @@ async def delete_report(db: AsyncSession, report_id: str, business_id: UUID) -> 
 
 # --- widgets ---------------------------------------------------------------------------------
 
+DEFAULT_WIDGET_WIDTH = 6  # half of the 12-column grid
+DEFAULT_WIDGET_HEIGHT = 8
+
+
+def bottom_of(widgets: list[ReportWidget]) -> int:
+    return max((w.layout.get("y", 0) + w.layout.get("h", 0) for w in widgets), default=0)
+
+
 
 async def touch(db: AsyncSession, report: Report) -> None:
     report.updated_at = datetime.utcnow()
@@ -154,13 +162,18 @@ async def create_widget(
 ) -> WidgetResponse:
     report = await load_report(db, report_id, business_id)
     await resolve_series(db, business_id, payload.config.series)
+    layout = payload.layout or WidgetLayout(
+        x=0,
+        y=bottom_of(await report_repository.list_widgets(db, report.id)),
+        w=DEFAULT_WIDGET_WIDTH,
+        h=DEFAULT_WIDGET_HEIGHT,
+    )
     widget = ReportWidget(
         report_id=report.id,
         title=clean_text(payload.title) or "Untitled widget",
         chart_type=payload.chartType,
         config=payload.config.model_dump(mode="json"),
-        position=await report_repository.next_widget_position(db, report.id),
-        width=payload.width,
+        layout=layout.model_dump(),
     )
     db.add(widget)
     await touch(db, report)
@@ -188,8 +201,6 @@ async def update_widget(
     if payload.config is not None:
         await resolve_series(db, business_id, payload.config.series)
         widget.config = payload.config.model_dump(mode="json")
-    if payload.width is not None:
-        widget.width = payload.width
     widget.updated_at = datetime.utcnow()
     db.add(widget)
     await touch(db, report)
@@ -206,20 +217,22 @@ async def delete_widget(db: AsyncSession, report_id: str, widget_id: str, busine
     await db.commit()
 
 
-async def reorder_widgets(
-    db: AsyncSession, report_id: str, payload: WidgetReorder, business_id: UUID
+async def save_layout(
+    db: AsyncSession, report_id: str, payload: ReportLayoutUpdate, business_id: UUID
 ) -> list[WidgetResponse]:
     report = await load_report(db, report_id, business_id)
     widgets = await report_repository.list_widgets(db, report.id)
     by_id = {str(widget.id): widget for widget in widgets}
-    if sorted(payload.ids) != sorted(by_id):
-        raise bad_request("ids must list every widget in the report exactly once")
-    for position, widget_id in enumerate(payload.ids):
-        by_id[widget_id].position = position
-        db.add(by_id[widget_id])
+    unknown = [item.id for item in payload.items if item.id not in by_id]
+    if unknown:
+        raise bad_request("Layout includes widgets that are not in this report")
+    for item in payload.items:
+        widget = by_id[item.id]
+        widget.layout = WidgetLayout.model_validate(item.model_dump(exclude={"id"})).model_dump()
+        db.add(widget)
     await touch(db, report)
     await db.commit()
-    return [widget_to_response(by_id[widget_id]) for widget_id in payload.ids]
+    return [widget_to_response(widget) for widget in widgets]
 
 
 # --- query -----------------------------------------------------------------------------------

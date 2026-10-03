@@ -7,10 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
 from app.dependencies.auth import BusinessAccess, get_business_access, require_business_role
-from app.schemas.transaction import TransactionCreate, TransactionResponse, TransactionUpdate
+from app.schemas.pagination import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, MAX_SEARCH_LENGTH, SortOrder
+from app.schemas.transaction import (
+    TransactionCreate,
+    TransactionPage,
+    TransactionResponse,
+    TransactionSortField,
+    TransactionUpdate,
+)
 from app.services.transaction_service import (
     create_transaction,
     delete_transaction,
+    get_transaction,
     list_transactions,
     update_transaction,
 )
@@ -27,14 +35,30 @@ async def create_expense(
     return await create_transaction(db, payload, "expense", access.business.id, access.user.id)
 
 
-@router.get("", response_model=list[TransactionResponse])
+@router.get("", response_model=TransactionPage)
 async def list_expenses(
     startDate: date | None = Query(default=None),
     endDate: date | None = Query(default=None),
+    limit: int = Query(default=DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, max_length=MAX_SEARCH_LENGTH),
+    sort: TransactionSortField = Query(default="date"),
+    order: SortOrder = Query(default="desc"),
     db: AsyncSession = Depends(get_session),
     access: BusinessAccess = Depends(get_business_access),
-) -> list[TransactionResponse]:
-    return await list_transactions(db, "expense", access.business.id, startDate, endDate)
+) -> TransactionPage:
+    return await list_transactions(
+        db, "expense", access.business.id, startDate, endDate, limit, offset, search, sort, order
+    )
+
+
+@router.get("/{entry_id}", response_model=TransactionResponse)
+async def get_expense(
+    entry_id: str,
+    db: AsyncSession = Depends(get_session),
+    access: BusinessAccess = Depends(get_business_access),
+) -> TransactionResponse:
+    return await get_transaction(db, entry_id, "expense", access.business.id)
 
 
 @router.put("/{entry_id}", response_model=TransactionResponse)

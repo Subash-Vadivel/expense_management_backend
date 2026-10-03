@@ -5,8 +5,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.pagination import Page
+
 TransactionType = Literal["income", "expense"]
 CustomFieldType = Literal["NUMBER", "STRING", "BOOLEAN"]
+TransactionSortField = Literal["date", "amount", "category"]
 
 
 class CustomFieldValueInput(BaseModel):
@@ -50,3 +53,16 @@ class TransactionResponse(BaseModel):
     customFieldValues: list[CustomFieldValueResponse] = Field(default_factory=list)
     createdAt: datetime
     updatedAt: datetime
+
+
+class TransactionSummary(BaseModel):
+    """Aggregates over every entry matching the filters, not just the current page."""
+
+    count: int
+    totalAmount: float
+    averageAmount: float
+    categoriesUsed: int
+
+
+class TransactionPage(Page[TransactionResponse]):
+    summary: TransactionSummary

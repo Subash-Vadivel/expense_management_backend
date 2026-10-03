@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.category import Category, CategoryType, CustomFieldDefinition
 from app.models.common import parse_uuid
 from app.repositories import category_repository
-from app.schemas.category import CategoryCreate, CategoryResponse, CustomFieldCreate, CustomFieldResponse
+from app.schemas.category import CategoryCreate, CategoryPage, CategoryResponse, CustomFieldCreate, CustomFieldResponse
+from app.schemas.pagination import DEFAULT_PAGE_LIMIT, clean_search
 
 
 def normalize_category_name(name: str) -> str:
@@ -97,10 +98,20 @@ async def create_category(
 
 
 async def list_categories(
-    db: AsyncSession, category_type: CategoryType, business_id: UUID
-) -> list[CategoryResponse]:
-    categories = await category_repository.list_categories(db, category_type, business_id)
-    return [category_to_response(category) for category in categories]
+    db: AsyncSession,
+    category_type: CategoryType,
+    business_id: UUID,
+    limit: int = DEFAULT_PAGE_LIMIT,
+    offset: int = 0,
+    search: str | None = None,
+) -> CategoryPage:
+    filters = category_repository.list_filters(category_type, business_id, clean_search(search))
+    categories = await category_repository.list_categories(db, filters, limit, offset)
+    total = await category_repository.count_categories(db, filters)
+    return CategoryPage(
+        items=[category_to_response(category) for category in categories],
+        **CategoryPage.page_fields(total, limit, offset),
+    )
 
 
 async def get_category_for_business(

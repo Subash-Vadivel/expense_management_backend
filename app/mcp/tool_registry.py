@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.pagination import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, MAX_SEARCH_LENGTH
 from app.mcp.tools.categories import handle_create_category, handle_list_categories
 from app.services.mcp_api_key_service import McpApiKeyAuth
 from app.mcp.tools.transactions import (
@@ -63,6 +64,39 @@ transaction_payload_properties = {
 }
 
 
+pagination_properties = {
+    "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": MAX_PAGE_LIMIT,
+        "default": DEFAULT_PAGE_LIMIT,
+        "description": f"Page size (1-{MAX_PAGE_LIMIT}, default {DEFAULT_PAGE_LIMIT}).",
+    },
+    "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of items to skip. Pass the previous response's nextOffset to get the next page.",
+    },
+}
+transaction_list_properties = {
+    "startDate": {"type": "string", "format": "date", "description": "Only entries on or after this date (YYYY-MM-DD)."},
+    "endDate": {"type": "string", "format": "date", "description": "Only entries on or before this date (YYYY-MM-DD)."},
+    "search": {
+        "type": "string",
+        "maxLength": MAX_SEARCH_LENGTH,
+        "description": "Case-insensitive match on description or category name.",
+    },
+    "sort": {"type": "string", "enum": ["date", "amount", "category"], "default": "date"},
+    "order": {"type": "string", "enum": ["asc", "desc"], "default": "desc"},
+    **pagination_properties,
+}
+PAGED_RESULT_NOTE = (
+    " Results are paginated: the response has items, total, limit, offset, hasMore and nextOffset."
+    " If hasMore is true, call again with offset=nextOffset to fetch more."
+)
+
+
 def list_schema(properties: dict[str, Any] | None = None, required: list[str] | None = None) -> dict[str, Any]:
     return {
         "type": "object",
@@ -111,8 +145,20 @@ async def _delete_expense(db: AsyncSession, auth: McpApiKeyAuth, arguments: dict
 TOOLS = [
     ToolDefinition(
         "list_categories",
-        "List income or expense categories for the authenticated user.",
-        list_schema({"type": category_type_property}, ["type"]),
+        "List income or expense categories in this business, sorted by name, including each category's"
+        " custom fields. Use search to filter by name." + PAGED_RESULT_NOTE,
+        list_schema(
+            {
+                "type": category_type_property,
+                "search": {
+                    "type": "string",
+                    "maxLength": MAX_SEARCH_LENGTH,
+                    "description": "Case-insensitive match on category name.",
+                },
+                **pagination_properties,
+            },
+            ["type"],
+        ),
         handle_list_categories,
     ),
     ToolDefinition(
@@ -130,8 +176,10 @@ TOOLS = [
     ),
     ToolDefinition(
         "list_income",
-        "List income entries with optional startDate and endDate filters.",
-        list_schema({"startDate": {"type": "string", "format": "date"}, "endDate": {"type": "string", "format": "date"}}),
+        "List income entries, newest first by default, with optional date range, search and sorting."
+        " The summary field has the count, total, average and categories used across ALL matching"
+        " entries, so use it for totals instead of paging through everything." + PAGED_RESULT_NOTE,
+        list_schema(transaction_list_properties),
         _list_income,
     ),
     ToolDefinition(
@@ -154,8 +202,10 @@ TOOLS = [
     ),
     ToolDefinition(
         "list_expenses",
-        "List expense entries with optional startDate and endDate filters.",
-        list_schema({"startDate": {"type": "string", "format": "date"}, "endDate": {"type": "string", "format": "date"}}),
+        "List expense entries, newest first by default, with optional date range, search and sorting."
+        " The summary field has the count, total, average and categories used across ALL matching"
+        " entries, so use it for totals instead of paging through everything." + PAGED_RESULT_NOTE,
+        list_schema(transaction_list_properties),
         _list_expenses,
     ),
     ToolDefinition(

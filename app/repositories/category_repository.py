@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.models.category import Category, CategoryType
+from app.schemas.pagination import LIKE_ESCAPE, like_pattern
 
 
 async def find_category_by_normalized_name(
@@ -51,14 +53,24 @@ async def find_category_for_business(
     return result.scalar_one_or_none()
 
 
-async def list_categories(
-    db: AsyncSession,
-    category_type: CategoryType,
-    business_id: UUID,
-) -> list[Category]:
+def list_filters(category_type: CategoryType, business_id: UUID, search: str | None = None) -> list:
+    filters = [Category.business_id == business_id, Category.type == category_type]
+    if search:
+        filters.append(Category.name.ilike(like_pattern(search), escape=LIKE_ESCAPE))
+    return filters
+
+
+async def list_categories(db: AsyncSession, filters: list, limit: int = 50, offset: int = 0) -> list[Category]:
     result = await db.execute(
         select(Category)
-        .where(Category.business_id == business_id, Category.type == category_type)
-        .order_by(Category.name.asc())
+        .where(*filters)
+        .order_by(Category.name.asc(), Category.id.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return list(result.scalars().all())
+
+
+async def count_categories(db: AsyncSession, filters: list) -> int:
+    result = await db.execute(select(func.count(Category.id)).where(*filters))
+    return int(result.scalar_one())

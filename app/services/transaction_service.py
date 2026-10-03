@@ -14,9 +14,13 @@ from app.schemas.transaction import (
     CustomFieldValueInput,
     CustomFieldValueResponse,
     TransactionCreate,
+    TransactionPage,
     TransactionResponse,
+    TransactionSortField,
+    TransactionSummary,
     TransactionUpdate,
 )
+from app.schemas.pagination import DEFAULT_PAGE_LIMIT, SortOrder, clean_search
 from app.services.category_service import get_category_for_business
 
 
@@ -153,17 +157,47 @@ async def list_transactions(
     business_id: UUID,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> list[TransactionResponse]:
+    limit: int = DEFAULT_PAGE_LIMIT,
+    offset: int = 0,
+    search: str | None = None,
+    sort: TransactionSortField = "date",
+    order: SortOrder = "desc",
+) -> TransactionPage:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="startDate cannot be after endDate",
         )
 
-    transactions = await transaction_repository.list_transactions(
-        db, transaction_type, business_id, start_date, end_date
+    filters = transaction_repository.list_filters(
+        transaction_type, business_id, start_date, end_date, clean_search(search)
     )
-    return [transaction_to_response(transaction) for transaction in transactions]
+    transactions = await transaction_repository.list_transactions(db, filters, sort, order, limit, offset)
+    count, total_amount, categories_used = await transaction_repository.summarize_transactions(db, filters)
+    return TransactionPage(
+        items=[transaction_to_response(transaction) for transaction in transactions],
+        summary=TransactionSummary(
+            count=count,
+            totalAmount=total_amount,
+            averageAmount=total_amount / count if count else 0,
+            categoriesUsed=categories_used,
+        ),
+        **TransactionPage.page_fields(count, limit, offset),
+    )
+
+
+async def get_transaction(
+    db: AsyncSession,
+    entry_id: str,
+    transaction_type: TransactionType,
+    business_id: UUID,
+) -> TransactionResponse:
+    transaction = await transaction_repository.find_transaction_for_business(
+        db, parse_uuid(entry_id, "entry id"), transaction_type, business_id
+    )
+    if not transaction:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+    return transaction_to_response(transaction)
 
 
 async def update_transaction(

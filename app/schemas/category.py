@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.pagination import Page
+
 CategoryType = Literal["income", "expense"]
 CustomFieldType = Literal["NUMBER", "STRING", "BOOLEAN"]
 
@@ -32,3 +34,7 @@ class CategoryResponse(BaseModel):
     customFields: list[CustomFieldResponse] = Field(default_factory=list)
     createdBy: str
     createdAt: datetime
+
+
+class CategoryPage(Page[CategoryResponse]):
+    pass

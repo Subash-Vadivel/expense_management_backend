@@ -10,7 +10,10 @@ from app.core.config import settings
 engine = create_async_engine(
     settings.async_database_url,
     echo=False,
-    pool_pre_ping=True,
+    # pre_ping costs several extra round trips on every checkout, which dominates request time against a
+    # remote database. Recycling connections before the Supabase pooler's idle timeout avoids stale ones instead.
+    pool_pre_ping=False,
+    pool_recycle=300,
     connect_args=settings.postgres_connect_args,
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

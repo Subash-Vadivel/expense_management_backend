@@ -33,6 +33,23 @@ async def get_membership(db: AsyncSession, business_id: UUID, user_id: UUID) -> 
     return result.scalar_one_or_none()
 
 
+async def get_user_with_business_access(
+    db: AsyncSession, user_id: UUID, business_id: UUID
+) -> tuple[User, BusinessEntity | None, BusinessMembership | None] | None:
+    """Fetch the user, business, and membership in one round trip; None if the user doesn't exist."""
+    result = await db.execute(
+        select(User, BusinessEntity, BusinessMembership)
+        .outerjoin(
+            BusinessMembership,
+            (BusinessMembership.user_id == User.id) & (BusinessMembership.business_id == business_id),
+        )
+        .outerjoin(BusinessEntity, BusinessEntity.id == BusinessMembership.business_id)
+        .where(User.id == user_id)
+    )
+    row = result.first()
+    return tuple(row) if row else None
+
+
 async def list_active_businesses_for_user(db: AsyncSession, user_id: UUID) -> list[tuple[BusinessEntity, BusinessMembership]]:
     result = await db.execute(
         select(BusinessEntity, BusinessMembership)

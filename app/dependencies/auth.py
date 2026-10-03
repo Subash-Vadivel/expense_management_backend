@@ -27,25 +27,31 @@ class BusinessAccess:
     membership: BusinessMembership
 
 
-async def get_current_user_document(
-    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_session)
-) -> User:
-    credentials_exception = HTTPException(
+def credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def decode_user_id(token: str) -> str:
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise credentials_exception
     except JWTError as exc:
-        raise credentials_exception from exc
+        raise credentials_exception() from exc
+    user_id = payload.get("sub")
+    if not user_id:
+        raise credentials_exception()
+    return user_id
 
-    user = await get_user_by_id(db, user_id)
+
+async def get_current_user_document(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_session)
+) -> User:
+    user = await get_user_by_id(db, decode_user_id(token))
     if not user:
-        raise credentials_exception
+        raise credentials_exception()
     return user
 
 
@@ -59,12 +65,19 @@ async def get_current_user_id(user: User = Depends(get_current_user_document)) -
 
 async def get_business_access(
     x_business_id: str = Header(..., alias="X-Business-Id"),
-    user: User = Depends(get_current_user_document),
+    token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_session),
 ) -> BusinessAccess:
+    # Runs on every finance request, so resolve user + business + membership in a single query.
+    try:
+        user_id = UUID(decode_user_id(token))
+    except ValueError as exc:
+        raise credentials_exception() from exc
     business_id = parse_uuid(x_business_id, "business id")
-    business = await business_repository.get_business(db, business_id)
-    membership = await business_repository.get_membership(db, business_id, user.id)
+    row = await business_repository.get_user_with_business_access(db, user_id, business_id)
+    if not row:
+        raise credentials_exception()
+    user, business, membership = row
     if not business or not membership or membership.status != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Business access required")
     return BusinessAccess(user=user, business=business, membership=membership)

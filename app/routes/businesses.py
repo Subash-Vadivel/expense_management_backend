@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.postgres import get_session
@@ -67,6 +67,7 @@ async def list_invitations(
 async def create_invitation(
     business_id: str,
     payload: BusinessInvitationCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_session),
     access: BusinessAccess = Depends(require_business_role("owner", "admin")),
 ) -> BusinessInvitationResponse:
@@ -74,5 +75,5 @@ async def create_invitation(
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Business header does not match route")
     return await business_service.create_invitation(
-        db, access.business.id, payload, access.user.id, access.membership.role
+        db, access.business.id, payload, access.user, access.membership.role, background_tasks
     )

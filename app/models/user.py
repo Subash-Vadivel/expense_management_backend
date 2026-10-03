@@ -18,4 +18,5 @@ class User(SQLModel, table=True):
     name: str
     email: EmailStr = Field(index=True, unique=True)
     hashed_password: str
+    email_verified_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)

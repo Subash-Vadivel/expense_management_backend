@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import hashlib
-import secrets
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.security import generate_token, hash_token
 from app.models.business import BusinessEntity, BusinessInvitation, BusinessMembership
 from app.models.common import parse_uuid
 from app.models.user import User
 from app.repositories import business_repository
+from app.services import email_service
 from app.schemas.business import (
     BusinessCreate,
     BusinessDetailResponse,
@@ -34,14 +34,6 @@ ALL_ROLES = {"owner", "admin", "manager", "viewer"}
 
 def normalize_email(email: str | EmailStr) -> str:
     return str(email).strip().lower()
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def generate_invitation_token() -> str:
-    return secrets.token_urlsafe(32)
 
 
 def build_invite_url(token: str) -> str:
@@ -160,9 +152,11 @@ async def create_invitation(
     db: AsyncSession,
     business_id: UUID,
     payload: BusinessInvitationCreate,
-    invited_by: UUID,
+    inviter: User,
     inviter_role: str,
+    background_tasks: BackgroundTasks,
 ) -> BusinessInvitationResponse:
+    invited_by = inviter.id
     email = normalize_email(payload.email)
     if payload.role not in ALL_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
@@ -180,7 +174,7 @@ async def create_invitation(
     if existing_invite:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A pending invitation already exists for this email")
 
-    token = generate_invitation_token()
+    token = generate_token()
     invitation = BusinessInvitation(
         business_id=business_id,
         email=email,
@@ -191,7 +185,11 @@ async def create_invitation(
         expires_at=datetime.utcnow() + timedelta(days=14),
     )
     created = await business_repository.create_invitation(db, invitation)
-    return invitation_to_response(created, business, build_invite_url(token))
+    invite_url = build_invite_url(token)
+    background_tasks.add_task(
+        email_service.send_invitation_email, email, business.name, inviter.name, payload.role, invite_url
+    )
+    return invitation_to_response(created, business, invite_url)
 
 
 async def inspect_invitation(db: AsyncSession, token: str) -> InvitationInspectResponse:
@@ -245,6 +243,10 @@ async def accept_invitation(db: AsyncSession, token: str, user: User) -> Invitat
             status="active",
             invited_by=invitation.invited_by,
         )
+    if user.email_verified_at is None:
+        # The invite link was delivered to this address, which proves ownership.
+        user.email_verified_at = datetime.utcnow()
+        db.add(user)
     membership = await business_repository.upsert_membership(db, membership)
 
     invitation.status = "accepted"

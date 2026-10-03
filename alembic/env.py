@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from app.core.config import settings
-from app.models import Category, McpApiKey, Transaction, User  # noqa: F401
+from app.models import BusinessEntity, BusinessInvitation, BusinessMembership, Category, McpApiKey, Transaction, User, UserToken  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.async_database_url)

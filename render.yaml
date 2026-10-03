@@ -32,3 +32,9 @@ services:
         value: "1440"
       - key: CORS_ORIGINS
         value: https://agrikaro.netlify.app,http://localhost:5173
+      - key: FRONTEND_URL
+        value: https://agrikaro.netlify.app
+      - key: RESEND_EMAILS_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: Ledgerline <no-reply@mail.ridocorp.com>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -25,3 +27,11 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
     )
     payload: dict[str, Any] = {"sub": subject, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def generate_token() -> str:
+    return secrets.token_urlsafe(32)

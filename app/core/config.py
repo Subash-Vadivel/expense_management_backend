@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 1440
     cors_origins: list[str] = ["http://localhost:5173"]
     frontend_url: str = "http://localhost:5173"
+    resend_emails_api_key: str | None = None
+    email_from: str = "Ledgerline <no-reply@mail.ridocorp.com>"
+    email_verification_expire_hours: int = 24
+    password_reset_expire_minutes: int = 60
 
     model_config = SettingsConfigDict(
         env_file=".env",

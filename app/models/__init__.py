@@ -3,6 +3,7 @@ from app.models.category import Category, CategoryType, CustomFieldDefinition, C
 from app.models.mcp_api_key import McpApiKey
 from app.models.transaction import CustomFieldValue, Transaction, TransactionType
 from app.models.user import User
+from app.models.user_token import UserToken, UserTokenPurpose
 
 __all__ = [
     "BusinessEntity",
@@ -20,4 +21,6 @@ __all__ = [
     "Transaction",
     "TransactionType",
     "User",
+    "UserToken",
+    "UserTokenPurpose",
 ]
